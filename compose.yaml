@@ -89,9 +89,13 @@ services:
       dockerfile: server/Dockerfile
       target: runtime
     environment:
-      # Only what the API needs to check a document's embedding model; it never calls the model.
+      # The embedding model, only to check a document's (the API never calls a model), and the API's own limits.
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      MAX_WAITING_DOCUMENTS: ${MAX_WAITING_DOCUMENTS:-20}
+      MAX_WAITING_ANSWERS: ${MAX_WAITING_ANSWERS:-20}
+      IDEMPOTENCY_KEY_TTL_MS: ${IDEMPOTENCY_KEY_TTL_MS:-86400000}
+      IDEMPOTENCY_TAKEOVER_MS: ${IDEMPOTENCY_TAKEOVER_MS:-60000}
       HOST: 0.0.0.0
       DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
       REDIS_URL: redis://redis:6379

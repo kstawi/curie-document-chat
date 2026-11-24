@@ -8,7 +8,7 @@ export const ERROR_MESSAGES = {
   document_failed:
     'Preparing the document failed, so it cannot take questions until it is prepared again (POST /documents/:id/retry).',
   embedding_model_changed:
-    'The document was indexed with a different embedding model than the one now configured. Re-prepare it first.',
+    'The document was indexed with a different embedding model than the one now configured. Prepare it again first (POST /documents/:id/retry).',
   model_unavailable: 'The model server could not be reached or is overloaded. Try again later.',
   model_rejected: 'The model server rejected the request. Check the model settings.',
   model_bad_output: 'The model did not return a usable answer.',

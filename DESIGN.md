@@ -162,14 +162,14 @@ lands late finds nothing to do.
 Postgres, and its response is stored in the same transaction that creates or changes the row. The key counts as done
 once the job is added; if that fails, the row is undone and the key given back in one transaction, and a repeat in
 between gets 409. A repeat with the same key and request gets the stored response, byte for byte. The same key with a
-different request gets 422, and a repeat while the first is still running gets 409. A failure gives the key back. A
-key held for a minute without finishing belongs to a request presumed dead: if it got as far as storing a response,
-that response stands (its row exists, and the sweeper sees it through); otherwise the key can be taken over; each
-claim carries its own id, so a request that was taken over can't store its response over the new one (its transaction
-rolls back). The key is checked before anything else, so a repeat of a question that succeeded gets its first answer
-even if the document has changed since. Keys expire after 24 hours, and the sweeper deletes them before it touches
-Redis.
+different request gets 422, and a repeat while the first is still running gets 409. A failure gives the key back,
+unless its response was already stored with the row. A key held for a minute without finishing belongs to a request
+presumed dead: if it got as far as storing a response, that response stands (its row exists, and the sweeper sees it
+through); otherwise the key can be taken over; each claim carries its own id, so a request that was taken over can't
+store its response over the new one (its transaction rolls back). The key is checked before anything else, so a repeat
+of a question that succeeded gets its first answer even if the document has changed since. Keys expire after 24 hours,
+and the sweeper deletes them before it touches Redis.
 
-**Too much waiting.** While 20 uploads or 20 questions already wait (both settings), new ones get 503 `busy` with
-`Retry-After: 30`. The count is approximate: two requests at the same moment can both take the last place. If the
-queue can't be counted, the request gets 503 `queue_unavailable` before anything is saved.
+**Too much waiting.** While 20 uploads or 20 questions already wait (both settings, passed to the API container), new
+ones get 503 `busy` with `Retry-After: 30`. The count is approximate: two requests at the same moment can both take
+the last place. If the queue can't be counted, the request gets 503 `queue_unavailable` before anything is saved.

@@ -65,8 +65,8 @@ export async function withTimeout<T>(call: Promise<T>, ms = REDIS_TIMEOUT_MS): P
 }
 
 // Throws if the job can't be added within two seconds; callers treat that as the queue being unavailable. A job
-// added late anyway either finds its row gone and does nothing (uploads and questions remove the row) or runs as
-// intended (the sweeper keeps the row on the new attempt).
+// added late anyway finds its row gone (uploads and questions remove it) or back as it was (retries put it back) and
+// does nothing, or runs as intended (the sweeper keeps the row on the new attempt).
 export async function enqueue<T>(queue: Queue<T>, data: T, id: string): Promise<void> {
   await withTimeout((queue as Queue).add(queue.name, data, { jobId: id }));
 }

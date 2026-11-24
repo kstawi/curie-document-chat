@@ -539,14 +539,18 @@ describe('Idempotency-Key handling', () => {
           multipart({ content: sample }, { title }),
         ),
       });
-    // Adding the job fails, and so does the transaction that would undo the row (the second one the route opens).
-    vi.spyOn(stack.queues.prepare as unknown as Queue, 'add').mockRejectedValueOnce(
-      new Error('connection lost'),
-    );
+    // Adding the job fails, and so does the next transaction opened after that: the one that would undo the row.
+    let addFailed = false;
+    vi.spyOn(stack.queues.prepare as unknown as Queue, 'add').mockImplementationOnce(async () => {
+      addFailed = true;
+      throw new Error('connection lost');
+    });
     const transaction = stack.db.transaction.bind(stack.db);
-    let opened = 0;
     const spy = vi.spyOn(stack.db, 'transaction').mockImplementation(() => {
-      if (++opened === 2) throw new Error('connection reset');
+      if (addFailed) {
+        addFailed = false;
+        throw new Error('connection reset');
+      }
       return transaction();
     });
     try {
@@ -642,6 +646,21 @@ describe('Idempotency-Key handling', () => {
       const res = await post(`/conversations/${conversation}/messages`, key, { question });
       expect([res.statusCode, res.json().error]).toEqual([400, 'invalid_request']);
     }
+  });
+
+  it('goes on with the sweep when purging the keys fails', async () => {
+    const stale = await insertTurn(await newConversation(), {
+      updated_at: new Date(Date.now() - 7_200_000),
+    });
+    const failingPurge = stack.db.withPlugin({
+      transformQuery({ node }) {
+        if (node.kind === 'DeleteQueryNode') throw new Error('statement timeout');
+        return node;
+      },
+      transformResult: async ({ result }) => result,
+    });
+    await sweep({ ...stack.deps, db: failingPurge }, stack.queues);
+    await waitFor(() => turnRow(stale), { attempt: 2, status: 'completed' });
   });
 
   it('purges expired keys in the sweep, even while Redis is unreachable', async () => {

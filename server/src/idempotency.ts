@@ -134,8 +134,8 @@ export async function claimKey(
 }
 
 // Runs a POST at most once per Idempotency-Key. The same key with the same request gets the first response again; with
-// a different request, 422; while the first is still running, 409. No key, no change. Any failure releases the key, so
-// a client can try again with it. Scope is the route pattern; the fingerprint covers the ids in the path and the body.
+// a different request, 422; while the first is still running, 409. No key, no change. A failure releases the key, so a
+// client can try again with it, unless its response was already stored with a committed row. Scope is the route pattern; the fingerprint covers the ids in the path and the body.
 export async function withIdempotencyKey(
   {
     db,
