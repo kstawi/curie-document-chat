@@ -114,7 +114,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             .values({ title, format: looksLikeMarkdown(text) ? 'markdown' : 'text', content: text })
             .returning(columns)
             .executeTakeFirstOrThrow();
-          await claim.done(trx, 202, toView(row));
+          await claim.record(trx, 202, toView(row));
           return row;
         });
         try {
@@ -122,7 +122,10 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         } catch {
           // `enqueue` only fails when the queue is unavailable. Without a job the document would sit in "queued"
           // until the sweeper found it, so it is removed and the client told to retry.
-          await db.deleteFrom('documents').where('id', '=', doc.id).execute();
+          await db.transaction().execute(async (trx) => {
+            await trx.deleteFrom('documents').where('id', '=', doc.id).execute();
+            await claim.release(trx);
+          });
           throw queueUnavailable();
         }
         return { status: 202, body: toView(doc) };
@@ -174,7 +177,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               .returning(columns)
               .executeTakeFirst();
             if (!row) throw notRetryable();
-            await claim.done(trx, 202, toView(row));
+            await claim.record(trx, 202, toView(row));
             return row;
           });
           try {
@@ -185,17 +188,20 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             );
           } catch {
             // Back as it was, but on the new attempt: a job that lands late finds the row not queued and does nothing.
-            await db
-              .updateTable('documents')
-              .set({
-                status: doc.status,
-                error_code: doc.error_code,
-                error_message: doc.error_message,
-              })
-              .where('id', '=', doc.id)
-              .where('attempt', '=', next)
-              .where('status', '=', 'queued')
-              .execute();
+            await db.transaction().execute(async (trx) => {
+              await trx
+                .updateTable('documents')
+                .set({
+                  status: doc.status,
+                  error_code: doc.error_code,
+                  error_message: doc.error_message,
+                })
+                .where('id', '=', doc.id)
+                .where('attempt', '=', next)
+                .where('status', '=', 'queued')
+                .execute();
+              await claim.release(trx);
+            });
             throw queueUnavailable();
           }
           return { status: 202, body: toView(updated) };

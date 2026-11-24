@@ -85,7 +85,7 @@ export async function checkBackPressure(queue: Queue, limit: number) {
   }
   const waiting = (counts.waiting ?? 0) + (counts.prioritized ?? 0) + (counts.delayed ?? 0);
   if (waiting >= limit) {
-    throw new HttpError(503, 'busy', 'Too much work is already waiting. Try again in a minute.', {
+    throw new HttpError(503, 'busy', 'Too much work is already waiting. Try again in 30 seconds.', {
       'retry-after': '30',
     });
   }

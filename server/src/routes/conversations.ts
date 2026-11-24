@@ -117,7 +117,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               .returning(['id', 'document_id', 'created_at'])
               .executeTakeFirstOrThrow();
             const body = { id: c.id, documentId: c.document_id, createdAt: c.created_at };
-            await claim.done(trx, 201, body);
+            await claim.record(trx, 201, body);
             return body;
           });
           return { status: 201, body: view };
@@ -196,7 +196,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
                 from turns where conversation_id = ${conversation.id}
                 returning ${sql.join(turnColumns.map((c) => sql.ref(c)))}
               `.execute(trx);
-              await claim.done(trx, 202, toTurnView(rows[0]!));
+              await claim.record(trx, 202, toTurnView(rows[0]!));
               return rows[0]!;
             });
           } catch (err) {
@@ -208,7 +208,10 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
           } catch {
             // `enqueue` only fails when the queue is unavailable. A pending row would lock the conversation (one
             // pending answer at a time), so it is removed.
-            await db.deleteFrom('turns').where('id', '=', turn.id).execute();
+            await db.transaction().execute(async (trx) => {
+              await trx.deleteFrom('turns').where('id', '=', turn.id).execute();
+              await claim.release(trx);
+            });
             throw queueUnavailable();
           }
           return { status: 202, body: toTurnView(turn) };
@@ -290,7 +293,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
                 .returning(turnColumns)
                 .executeTakeFirst();
               if (!row) throw notRetryable();
-              await claim.done(trx, 202, toTurnView(row));
+              await claim.record(trx, 202, toTurnView(row));
               return row;
             });
           } catch (err) {
@@ -301,13 +304,16 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             await enqueue(queues.answer, { turnId: turn.id, attempt: next }, jobId(turn.id, next));
           } catch {
             // Back to failed, on the new attempt: a job that lands late finds the row not pending and does nothing.
-            await db
-              .updateTable('turns')
-              .set({ status: 'failed', error_code: turn.error_code })
-              .where('id', '=', turn.id)
-              .where('attempt', '=', next)
-              .where('status', '=', 'pending')
-              .execute();
+            await db.transaction().execute(async (trx) => {
+              await trx
+                .updateTable('turns')
+                .set({ status: 'failed', error_code: turn.error_code })
+                .where('id', '=', turn.id)
+                .where('attempt', '=', next)
+                .where('status', '=', 'pending')
+                .execute();
+              await claim.release(trx);
+            });
             throw queueUnavailable();
           }
           return { status: 202, body: toTurnView(updated) };

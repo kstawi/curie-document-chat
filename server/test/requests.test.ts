@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { claimKey, requestHash } from '../src/idempotency.js';
 import { sweep } from '../src/jobs/sweep.js';
@@ -138,6 +139,39 @@ describe('retrying an answer', () => {
       expect([res.statusCode, res.json().error]).toEqual([409, 'not_retryable']);
     }
     expect((await post(`/messages/${randomUUID()}/retry`)).statusCode).toBe(404);
+  });
+
+  it('gives way with 409 answer_pending to a question asked at the same moment', async () => {
+    const conversation = await newConversation();
+    const first = await insertTurn(conversation, {
+      status: 'failed',
+      error_code: 'model_rejected',
+    });
+    // A second question inserted but not yet committed: the retry's check can't see it, the unique index can.
+    let inserted = () => {};
+    const asked = new Promise<void>((resolve) => (inserted = resolve));
+    let commit = () => {};
+    const held = new Promise<void>((resolve) => (commit = resolve));
+    const question = stack.db.transaction().execute(async (trx) => {
+      await trx
+        .insertInto('turns')
+        .values({ conversation_id: conversation, sequence: 2, question: 'And the cost?' })
+        .execute();
+      inserted();
+      await held;
+    });
+    await asked;
+    const retry = post(`/messages/${first}/retry`);
+    await vi.waitFor(async () => {
+      const { rows } = await sql<{ n: number }>`
+        select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'
+      `.execute(stack.db);
+      expect(rows[0]!.n).toBeGreaterThan(0);
+    });
+    commit();
+    await question;
+    const res = await retry;
+    expect([res.statusCode, res.json().error]).toEqual([409, 'answer_pending']);
   });
 
   it('refuses while the document is not ready', async () => {
@@ -330,6 +364,47 @@ describe('a job that cannot be added', () => {
     await waitFor(() => docRow(id), { status: 'ready', attempt: 3 });
   });
 
+  it('puts a retried document that was ready (with an older model) back to ready', async () => {
+    const id = await insertDoc({ status: 'ready', embedding_model: 'an-older-model' });
+    failNextAdd(stack.queues.prepare);
+    expect((await post(`/documents/${id}/retry`)).statusCode).toBe(503);
+    expect(await docRow(id)).toMatchObject({
+      status: 'ready',
+      embedding_model: 'an-older-model',
+      attempt: 2,
+    });
+  });
+
+  it('answers 409 to a repeat sent between storing the response and adding the job', async () => {
+    const title = randomUUID();
+    const key = randomUUID();
+    const upload = () =>
+      stack.app.inject({
+        method: 'POST',
+        url: '/documents',
+        ...(({ payload, headers }) => ({ payload, headers: { ...headers, ...keyed(key) } }))(
+          multipart({ content: sample }, { title }),
+        ),
+      });
+    // The add starts, waits, then fails: the repeat arrives while the first request is in that gap.
+    let started = () => {};
+    const adding = new Promise<void>((resolve) => (started = resolve));
+    let fail = () => {};
+    const gate = new Promise<void>((resolve) => (fail = resolve));
+    vi.spyOn(stack.queues.prepare as unknown as Queue, 'add').mockImplementationOnce(async () => {
+      started();
+      await gate;
+      throw new Error('connection lost');
+    });
+    const first = upload();
+    await adding;
+    const repeat = await upload();
+    expect([repeat.statusCode, repeat.json().error]).toEqual([409, 'request_in_progress']);
+    fail();
+    expect((await first).statusCode).toBe(503);
+    expect((await upload()).statusCode).toBe(202);
+  });
+
   it('puts a retried answer back to failed, on its new attempt, and gives the key back', async () => {
     const id = await failedTurn();
     const key = randomUUID();
@@ -404,6 +479,19 @@ describe('Idempotency-Key handling', () => {
     expect([again.statusCode, again.body]).toEqual([202, first.body]);
   });
 
+  it('replays the stored response of a request that stopped after storing it', async () => {
+    const conversation = await newConversation();
+    const key = randomUUID();
+    await insertKey(conversation, {
+      key,
+      status_code: 202,
+      response: '{"stored":true}',
+      created_at: new Date(Date.now() - 120_000),
+    });
+    const res = await post(`/conversations/${conversation}/messages`, key, { question });
+    expect([res.statusCode, res.body]).toEqual([202, '{"stored":true}']);
+  });
+
   it('treats an expired key as new', async () => {
     const conversation = await newConversation();
     const key = randomUUID();
@@ -441,7 +529,7 @@ describe('Idempotency-Key handling', () => {
           .insertInto('conversations')
           .values({ id: conversation, document_id: documentId })
           .execute();
-        await first.claim.done(trx, 201, {});
+        await first.claim.record(trx, 201, {});
       }),
     ).rejects.toMatchObject({ code: 'request_in_progress' });
     expect(
@@ -451,7 +539,7 @@ describe('Idempotency-Key handling', () => {
         .where('id', '=', conversation)
         .execute(),
     ).toEqual([]);
-    await stack.db.transaction().execute((trx) => second.claim.done(trx, 201, {}));
+    await stack.db.transaction().execute((trx) => second.claim.record(trx, 201, {}));
   });
 
   it('refuses a malformed key with 400', async () => {
@@ -465,11 +553,20 @@ describe('Idempotency-Key handling', () => {
   it('purges expired keys in the sweep, even while Redis is unreachable', async () => {
     const key = randomUUID();
     await insertKey(randomUUID(), { key, expires_at: new Date(Date.now() - 1_000) });
+    // A row old enough to need a Redis lookup, so a purge placed after the lookups would never run.
+    const stale = await insertTurn(await newConversation(), {
+      updated_at: new Date(Date.now() - 7_200_000),
+    });
     const dead = createQueues('redis://127.0.0.1:1', `test-${randomUUID()}`, stack.deps.config);
     for (const q of Object.values(dead)) q.on('error', () => {});
     try {
-      await sweep(stack.deps, dead).catch(() => {});
+      await expect(sweep(stack.deps, dead)).rejects.toThrow();
     } finally {
+      await stack.db
+        .updateTable('turns')
+        .set({ status: 'failed' })
+        .where('id', '=', stale)
+        .execute();
       await Promise.race([
         Promise.allSettled(Object.values(dead).map((q) => q.close())),
         new Promise((resolve) => setTimeout(resolve, 2_000)),

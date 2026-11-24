@@ -17,16 +17,23 @@ async function isLive(queue: Queue, id: string) {
 // written. Each is queued again under a new attempt, at most MAX_REQUEUES times, then failed with max_attempts.
 // While Redis can't be read the whole sweep stops at the first lookup, and a row whose new job can't be added gets
 // its requeue back, so an outage never uses them up.
-export async function sweep({ db, config }: Pick<JobDeps, 'db' | 'config'>, queues: Queues) {
+export async function sweep(
+  { db, config, log }: Pick<JobDeps, 'db' | 'config' | 'log'>,
+  queues: Queues,
+) {
   const cutoff = new Date(Date.now() - config.SWEEP_STALE_MS);
   const counts = { requeued: 0, failed: 0, keysPurged: 0 };
 
-  // First, as it needs no Redis: an outage mustn't keep expired keys around.
-  const purged = await db
-    .deleteFrom('idempotency_keys')
-    .where('expires_at', '<', new Date())
-    .executeTakeFirst();
-  counts.keysPurged = Number(purged.numDeletedRows);
+  // First, as it needs no Redis: an outage mustn't keep expired keys around. A failure here only skips the purge.
+  try {
+    const purged = await db
+      .deleteFrom('idempotency_keys')
+      .where('expires_at', '<', new Date())
+      .executeTakeFirst();
+    counts.keysPurged = Number(purged.numDeletedRows);
+  } catch (err) {
+    log.warn({ err: (err as Error).message }, 'could not purge expired idempotency keys');
+  }
 
   const documents = await db
     .selectFrom('documents')

@@ -10,21 +10,34 @@ export type KeySettings = Pick<Config, 'IDEMPOTENCY_KEY_TTL_MS' | 'IDEMPOTENCY_T
 // Visible ASCII only, so a key is safe to store, log and compare.
 const VALID_KEY = /^[\x21-\x7e]{1,200}$/;
 
-// What a request that owns a key does with it. `done` stores the response in the same transaction that creates or
-// changes the row, and fails (rolling that transaction back) if another request has taken the key over since.
-// `release` gives the key up when the request ends without keeping anything.
+// What a request that owns a key does with it:
+// - `record` stores the response in the same transaction that creates or changes the row, and fails (rolling that
+//   transaction back) if another request has taken the key over since. The key stays in flight: the row can still be
+//   undone if its job can't be added.
+// - `finish` marks the key done once nothing will undo the row.
+// - `release` gives the key up, in the transaction that undoes the row when there is one.
 export interface Claim {
-  done(trx: Transaction<Database>, status: number, body: unknown): Promise<void>;
-  release(): Promise<void>;
+  record(trx: Transaction<Database>, status: number, body: unknown): Promise<void>;
+  finish(): Promise<void>;
+  release(trx?: Kysely<Database>): Promise<void>;
 }
 
-const noKey: Claim = { done: async () => {}, release: async () => {} };
+const noKey: Claim = { record: async () => {}, finish: async () => {}, release: async () => {} };
 
 export const requestHash = (fingerprint: unknown) =>
   createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
 
+const inProgress = () =>
+  new HttpError(
+    409,
+    'request_in_progress',
+    'A request with this Idempotency-Key is still in progress.',
+  );
+
 // Claims a key for a request, or finds the response to replay. A key in flight for longer than the takeover time
-// belongs to a request presumed dead (the process stopped before it finished), and is taken over.
+// belongs to a request presumed dead (the process stopped before it finished): if that request got as far as storing
+// its response, its row was committed and the sweeper will see it through, so the response stands; otherwise the key
+// is taken over.
 export async function claimKey(
   db: Kysely<Database>,
   settings: KeySettings,
@@ -43,21 +56,26 @@ export async function claimKey(
     created_at: now,
     expires_at: new Date(now.getTime() + settings.IDEMPOTENCY_KEY_TTL_MS),
   };
+  const mine = (q: Kysely<Database>) =>
+    q
+      .updateTable('idempotency_keys')
+      .where('scope', '=', scope)
+      .where('key', '=', key)
+      .where('claim', '=', claimId);
   const claim: Claim = {
-    async done(trx, status, body) {
-      const res = await trx
-        .updateTable('idempotency_keys')
-        .set({ state: 'done', status_code: status, response: JSON.stringify(body) })
-        .where('scope', '=', scope)
-        .where('key', '=', key)
-        .where('claim', '=', claimId)
+    async record(trx, status, body) {
+      const res = await mine(trx)
+        .set({ status_code: status, response: JSON.stringify(body) })
         .executeTakeFirst();
       if (!res.numUpdatedRows) {
         throw new HttpError(409, 'request_in_progress', 'Another request with this key took over.');
       }
     },
-    async release() {
-      await db
+    async finish() {
+      await mine(db).set({ state: 'done' }).execute();
+    },
+    async release(trx = db) {
+      await trx
         .deleteFrom('idempotency_keys')
         .where('scope', '=', scope)
         .where('key', '=', key)
@@ -80,12 +98,6 @@ export async function claimKey(
     .where('scope', '=', scope)
     .where('key', '=', key)
     .executeTakeFirst();
-  const inProgress = () =>
-    new HttpError(
-      409,
-      'request_in_progress',
-      'A request with this Idempotency-Key is still in progress.',
-    );
   // Released between the insert and the read: another request is starting with it right now.
   if (!row) throw inProgress();
   const expired = row.expires_at <= now;
@@ -96,18 +108,23 @@ export async function claimKey(
       'This Idempotency-Key was already used for a different request.',
     );
   }
-  if (!expired && row.state === 'done') {
-    return { replay: { status: row.status_code!, body: row.response! } };
-  }
+  const replay = { replay: { status: row.status_code!, body: row.response! } };
+  if (!expired && row.state === 'done') return replay;
   if (!expired && now.getTime() - row.created_at.getTime() < settings.IDEMPOTENCY_TAKEOVER_MS) {
     throw inProgress();
   }
+  if (!expired && row.response !== null) return replay;
+  // Only the row as read: if its request stored a response or finished in the meantime, nothing is taken over.
   const taken = await db
     .updateTable('idempotency_keys')
     .set(fresh)
     .where('scope', '=', scope)
     .where('key', '=', key)
     .where('claim', '=', row.claim)
+    .where('state', '=', row.state)
+    .where((eb) =>
+      row.response === null ? eb('response', 'is', null) : eb('response', '=', row.response),
+    )
     .executeTakeFirst();
   if (!taken.numUpdatedRows) throw inProgress();
   return { claim };
@@ -152,11 +169,15 @@ export async function withIdempotencyKey(
     }
     claim = found.claim;
   }
+  let result: { status: number; body: unknown };
   try {
-    const { status, body } = await run(claim);
-    return reply.code(status).send(body);
+    result = await run(claim);
   } catch (err) {
     await claim.release().catch(() => {});
     throw err;
   }
+  // If this fails, the key stays in flight with its response stored, and a repeat gets that response once the
+  // takeover time has passed.
+  await claim.finish().catch(() => {});
+  return reply.code(result.status).send(result.body);
 }
