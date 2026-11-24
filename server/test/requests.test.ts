@@ -26,7 +26,8 @@ const answered = () =>
 let stack: Awaited<ReturnType<typeof startStack>>;
 let documentId: string;
 beforeAll(async () => {
-  stack = await startStack();
+  // Rows count as stale only after 30 minutes, so the sweeps here leave other files' rows alone.
+  stack = await startStack({ SWEEP_STALE_MS: 30 * 60_000 });
   stack.fake.script({ content: answered() });
   const res = await stack.app.inject({
     method: 'POST',

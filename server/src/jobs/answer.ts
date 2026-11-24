@@ -54,6 +54,8 @@ export async function answerQuestion(
     config.HEARTBEAT_MS,
     log,
   );
+  // Known once the turn is read, so every later log line names the document too.
+  let documentId: string | undefined;
   // What happened on the way (rewrite, shrinking, a first call that failed), kept in the debug column either way.
   const trail: Record<string, unknown> = {};
 
@@ -73,6 +75,7 @@ export async function answerQuestion(
       ])
       .where('turns.id', '=', turnId)
       .executeTakeFirstOrThrow();
+    documentId = turn.documentId;
     if (turn.documentStatus !== 'ready') throw new AnswerError('document_not_ready');
     if (turn.embeddingModel !== model.embeddingModel)
       throw new AnswerError('embedding_model_changed');
@@ -179,19 +182,22 @@ export async function answerQuestion(
       .where('attempt', '=', attempt)
       .where('status', '=', 'pending')
       .execute();
-    log.info({ turnId, outcome, answerPath, passages: passages.length }, 'question answered');
+    log.info(
+      { turnId, documentId, outcome, answerPath, passages: passages.length },
+      'question answered',
+    );
   } catch (err) {
     if (err instanceof ModelError && err.kind === 'aborted' && shutdown.aborted) {
       throw new ShutdownAbort();
     }
     if (isRetryable(err) && !lastAttempt) {
-      log.warn({ turnId, err: err.message }, 'answer will be retried');
+      log.warn({ turnId, documentId, err: err.message }, 'answer will be retried');
       await setStage('retrying');
       throw err;
     }
     const code: ErrorCode =
       err instanceof ModelError || err instanceof AnswerError ? err.code : 'internal_error';
-    log.warn({ turnId, code, err: (err as Error).message }, 'answer failed');
+    log.warn({ turnId, documentId, code, err: (err as Error).message }, 'answer failed');
     await db
       .updateTable('turns')
       .set({

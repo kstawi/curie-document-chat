@@ -120,6 +120,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             await claim.record(trx, 201, body);
             return body;
           });
+          request.log.info({ conversationId: view.id, documentId: doc.id }, 'conversation started');
           return { status: 201, body: view };
         },
       ),
@@ -214,6 +215,10 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             });
             throw queueUnavailable();
           }
+          request.log.info(
+            { turnId: turn.id, conversationId: conversation.id },
+            'question accepted',
+          );
           return { status: 202, body: toTurnView(turn) };
         },
       ),
@@ -321,6 +326,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             });
             throw queueUnavailable();
           }
+          request.log.info({ turnId: turn.id, attempt: next }, 'answer retry accepted');
           return { status: 202, body: toTurnView(updated) };
         },
       ),

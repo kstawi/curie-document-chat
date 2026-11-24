@@ -128,6 +128,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
           });
           throw queueUnavailable();
         }
+        request.log.info({ documentId: doc.id }, 'document accepted');
         return { status: 202, body: toView(doc) };
       });
     },
@@ -204,6 +205,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             });
             throw queueUnavailable();
           }
+          request.log.info({ documentId: doc.id, attempt: next }, 'document retry accepted');
           return { status: 202, body: toView(updated) };
         },
       ),
