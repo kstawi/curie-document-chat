@@ -19,7 +19,14 @@ async function isLive(queue: Queue, id: string) {
 // its requeue back, so an outage never uses them up.
 export async function sweep({ db, config }: Pick<JobDeps, 'db' | 'config'>, queues: Queues) {
   const cutoff = new Date(Date.now() - config.SWEEP_STALE_MS);
-  const counts = { requeued: 0, failed: 0 };
+  const counts = { requeued: 0, failed: 0, keysPurged: 0 };
+
+  // First, as it needs no Redis: an outage mustn't keep expired keys around.
+  const purged = await db
+    .deleteFrom('idempotency_keys')
+    .where('expires_at', '<', new Date())
+    .executeTakeFirst();
+  counts.keysPurged = Number(purged.numDeletedRows);
 
   const documents = await db
     .selectFrom('documents')

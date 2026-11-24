@@ -8,6 +8,7 @@ import {
 import type { Redis } from 'ioredis';
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
+import type { Config } from './config.js';
 import type { Database } from './db.js';
 import { HttpError } from './errors.js';
 import { withTimeout, type Queues } from './queue.js';
@@ -22,6 +23,13 @@ export interface AppDeps {
   embeddingModel: string;
   // Where the worker leaves its start-up model check.
   modelStatusKey: string;
+  settings: Pick<
+    Config,
+    | 'MAX_WAITING_DOCUMENTS'
+    | 'MAX_WAITING_ANSWERS'
+    | 'IDEMPOTENCY_KEY_TTL_MS'
+    | 'IDEMPOTENCY_TAKEOVER_MS'
+  >;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -71,7 +79,10 @@ export function buildApp(deps: AppDeps) {
   // default handler would log the whole error object, and a pg error can carry row data.
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof HttpError) {
-      return reply.code(err.statusCode).send({ error: err.code, message: err.message });
+      return reply
+        .code(err.statusCode)
+        .headers(err.headers)
+        .send({ error: err.code, message: err.message });
     }
     if (hasZodFastifySchemaValidationErrors(err)) {
       return reply.code(400).send({ error: 'invalid_request', message: err.message });

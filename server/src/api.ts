@@ -24,6 +24,7 @@ const app = buildApp({
   queues,
   embeddingModel: embeddingIdentity(config),
   modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
+  settings: config,
   logger: { level: config.LOG_LEVEL },
 });
 // ioredis reconnects by itself; log the outage, /ready reports it.

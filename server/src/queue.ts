@@ -1,5 +1,6 @@
 import { Queue, type ConnectionOptions, type DefaultJobOptions } from 'bullmq';
 import type { Config } from './config.js';
+import { HttpError } from './errors.js';
 
 export interface PrepareJob {
   documentId: string;
@@ -68,4 +69,24 @@ export async function withTimeout<T>(call: Promise<T>, ms = REDIS_TIMEOUT_MS): P
 // intended (the sweeper keeps the row on the new attempt).
 export async function enqueue<T>(queue: Queue<T>, data: T, id: string): Promise<void> {
   await withTimeout((queue as Queue).add(queue.name, data, { jobId: id }));
+}
+
+export const queueUnavailable = () =>
+  new HttpError(503, 'queue_unavailable', 'The job queue is unavailable. Try again shortly.');
+
+// Refuses new work while `limit` jobs already wait (delayed ones, waiting out a retry backoff, included), so a burst
+// can't queue hours of answers behind one model.
+export async function checkBackPressure(queue: Queue, limit: number) {
+  let counts: Record<string, number>;
+  try {
+    counts = await withTimeout(queue.getJobCounts('waiting', 'prioritized', 'delayed'));
+  } catch {
+    throw queueUnavailable();
+  }
+  const waiting = (counts.waiting ?? 0) + (counts.prioritized ?? 0) + (counts.delayed ?? 0);
+  if (waiting >= limit) {
+    throw new HttpError(503, 'busy', 'Too much work is already waiting. Try again in a minute.', {
+      'retry-after': '30',
+    });
+  }
 }

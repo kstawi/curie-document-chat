@@ -32,7 +32,7 @@ let sweeping: Promise<void> | undefined;
 function sweepNow() {
   sweeping ??= sweep(deps, queues)
     .then((counts) => {
-      if (counts.requeued || counts.failed) log.info(counts, 'sweep');
+      if (counts.requeued || counts.failed || counts.keysPurged) log.info(counts, 'sweep');
     })
     .catch((err: Error) => log.warn({ err: err.message }, 'sweep skipped'))
     .finally(() => (sweeping = undefined));

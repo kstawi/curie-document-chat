@@ -67,6 +67,19 @@ const schema = z.object({
   // One tiny call to each model when the worker starts, reported on /ready. Turn it off where the model server
   // loads models on demand and a worker restart shouldn't load one.
   MODEL_STARTUP_CHECK: z.stringbool().default(true),
+
+  // New uploads and questions get 503 "busy" while this many jobs already wait. Approximate: two requests at the same
+  // moment can both see one place left.
+  MAX_WAITING_DOCUMENTS: z.coerce.number().int().min(1).default(20),
+  MAX_WAITING_ANSWERS: z.coerce.number().int().min(1).default(20),
+  // How long a repeated request with the same Idempotency-Key gets the first response.
+  IDEMPOTENCY_KEY_TTL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 3_600_000),
+  // A request holding a key this long without finishing is presumed dead, and its key can be taken over.
+  IDEMPOTENCY_TAKEOVER_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 export type Config = z.infer<typeof schema>;

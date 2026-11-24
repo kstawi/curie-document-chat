@@ -51,6 +51,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     queues,
     embeddingModel: embeddingIdentity(config),
     modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
+    settings: config,
   });
 
   return {

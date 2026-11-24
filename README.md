@@ -77,6 +77,11 @@ A completed answer looks like this (with the local model, answers took about 15 
 `note`, not backed by a quote) or `unsupported` (the model claimed an answer, but none of its quotes could be found,
 so it isn't shown). `scripts/smoke.mjs` runs the sample questions against a running stack.
 
+A failed document or answer can be tried again with `POST /documents/<doc>/retry` or `POST /messages/<message>/retry`
+(only a conversation's latest question). Every POST accepts an `Idempotency-Key` header: a request sent again with
+the same key gets its first response instead of running twice. While 20 uploads or 20 questions already wait, new
+ones get 503 `busy` with `Retry-After`.
+
 ## Run the tests
 
 Lint, type checks and all tests run in a container against their own database, with a fake model server, so no

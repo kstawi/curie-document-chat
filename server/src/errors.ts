@@ -24,6 +24,7 @@ export class HttpError extends Error {
     readonly statusCode: number,
     readonly code: string,
     message: string,
+    readonly headers: Record<string, string> = {},
   ) {
     super(message);
   }

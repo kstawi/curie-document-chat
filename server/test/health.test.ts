@@ -15,6 +15,7 @@ const build = (r: Redis) =>
     queues,
     embeddingModel: 'none',
     modelStatusKey: 'test-health:model-status',
+    settings: config,
   });
 const redis = new Redis(config.REDIS_URL, {
   enableOfflineQueue: false,

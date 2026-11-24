@@ -73,11 +73,25 @@ export interface TurnsTable {
   updated_at: Generated<Date>;
 }
 
+export interface IdempotencyKeysTable {
+  scope: string;
+  key: string;
+  request_hash: string;
+  claim: string;
+  state: 'in_flight' | 'done';
+  status_code: number | null;
+  // The JSON body first sent, replayed as is.
+  response: string | null;
+  created_at: Date;
+  expires_at: Date;
+}
+
 export interface Database {
   documents: DocumentsTable;
   chunks: ChunksTable;
   conversations: ConversationsTable;
   turns: TurnsTable;
+  idempotency_keys: IdempotencyKeysTable;
 }
 
 export function createDb(
