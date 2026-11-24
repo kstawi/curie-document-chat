@@ -536,6 +536,14 @@ describe('questions and answers', () => {
     });
   });
 
+  it('accepts a not-in-document reply with an empty note', async () => {
+    stack.fake.reply({ outcome: 'not_in_document', answer: ' ', quotes: [] });
+    const turn = await finished(
+      (await ask(await newConversation(documentId), 'What did it cost?')).json().id,
+    );
+    expect(turn).toMatchObject({ status: 'completed', outcome: 'not_in_document', note: '' });
+  });
+
   it('cuts a long note to 300 characters without splitting an emoji', async () => {
     stack.fake.reply({
       outcome: 'not_in_document',

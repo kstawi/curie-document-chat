@@ -9,11 +9,14 @@ import { embeddingIdentity, type Config } from './config.js';
 // Postgres can't store a NUL character or half an emoji (a lone surrogate), and model text can contain both.
 const storable = (s: string) => s.replaceAll('\u0000', '').toWellFormed();
 
-export const modelAnswer = z.strictObject({
-  outcome: z.enum(['answered', 'not_in_document']),
-  answer: z.string().max(4_000).overwrite(storable).trim().min(1),
-  quotes: z.array(z.string().max(2_000).overwrite(storable)).max(5),
-});
+export const modelAnswer = z
+  .strictObject({
+    outcome: z.enum(['answered', 'not_in_document']),
+    answer: z.string().max(4_000).overwrite(storable).trim(),
+    quotes: z.array(z.string().max(2_000).overwrite(storable)).max(5),
+  })
+  // An empty note on not_in_document still carries the verdict; an empty answer carries nothing.
+  .refine((r) => r.outcome !== 'answered' || r.answer !== '');
 export type ModelAnswer = z.infer<typeof modelAnswer>;
 
 // The answer format tested in step 0 of the build, sent as a strict JSON schema.
