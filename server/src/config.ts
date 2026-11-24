@@ -55,7 +55,7 @@ const schema = z.object({
   // Attempts per job when the model server is down, overloaded or stuck, with exponential backoff between them.
   JOB_ATTEMPTS: z.coerce.number().int().min(1).default(3),
   JOB_BACKOFF_MS: z.coerce.number().int().positive().default(5_000),
-  // Caps on a whole job, every call and retry in it included.
+  // Caps on one run of a job, every call in it included; a job run again gets a fresh limit.
   ANSWER_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   PREPARE_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
   HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),

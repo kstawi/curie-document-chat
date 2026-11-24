@@ -119,8 +119,8 @@ three attempts in all). What each failure leads to:
 | Prompt longer than the context       | half the passages, once; then `context_too_long` | `context_too_long`  | search with the last two questions | `internal_error`   |
 | Other 4xx                            | `model_rejected`                                 | `model_rejected`    | search with the last two questions | `model_rejected`   |
 
-On the last attempt, a failure that would run the job again is recorded as `model_unavailable` instead. A whole
-answer is capped at 10 minutes and a preparation at 15, every call included.
+On the last attempt, a failure that would run the job again is recorded as `model_unavailable` instead. Each run of
+an answer job is capped at 10 minutes and each run of a preparation at 15, every call in it included.
 
 **Thinking off.** I chose one retry with thinking off after a runaway. Before the build it never ran away, but it
 called all four "not measured" questions not found, so each answer records which path produced it. The switch differs

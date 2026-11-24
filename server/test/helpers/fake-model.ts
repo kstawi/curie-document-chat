@@ -26,6 +26,8 @@ export interface ChatReply {
   body?: unknown;
   content?: string;
   finish?: string;
+  // Sent as is instead of a JSON reply, e.g. an empty or broken body.
+  raw?: string;
   // Resolves before the reply is sent; lets a test hold an answer open.
   wait?: Promise<void>;
 }
@@ -50,9 +52,9 @@ export class FakeModel {
 
   async start() {
     this.server = createServer((req, res) => {
-      void this.handle(req).then(({ status, body }) => {
+      void this.handle(req).then(({ status, body, raw }) => {
         res.writeHead(status, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(body));
+        res.end(raw ?? JSON.stringify(body));
       });
     });
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
@@ -75,7 +77,9 @@ export class FakeModel {
     this.onChat = () => replies[Math.min(i++, replies.length - 1)]!;
   }
 
-  private async handle(req: IncomingMessage): Promise<{ status: number; body: unknown }> {
+  private async handle(
+    req: IncomingMessage,
+  ): Promise<{ status: number; body?: unknown; raw?: string }> {
     let raw = '';
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw || '{}');
@@ -109,6 +113,7 @@ export class FakeModel {
       await r.wait;
       if (r.status && r.status !== 200)
         return { status: r.status, body: r.body ?? { error: { message: 'fail' } } };
+      if (r.raw !== undefined) return { status: 200, raw: r.raw };
       if (r.body !== undefined) return { status: 200, body: r.body };
       return {
         status: 200,

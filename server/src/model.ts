@@ -123,7 +123,12 @@ function classify(err: unknown, signal?: AbortSignal): never {
     }
     throw new ModelError('rejected', `model server answered ${status}`, err.message);
   }
-  throw err;
+  // A body cut off or broken on the way (the SDK throws a bare TypeError or SyntaxError): treated as an outage.
+  throw new ModelError(
+    'unavailable',
+    'the model server reply was cut off or unreadable',
+    String(err),
+  );
 }
 
 interface CallOptions {
@@ -173,7 +178,7 @@ export function createModel(config: Config) {
       )
       .catch((err: unknown) => classify(err, signal));
     // A server can answer 200 with a body of another shape.
-    const choice = Array.isArray(res.choices) ? res.choices[0] : undefined;
+    const choice = Array.isArray(res?.choices) ? res.choices[0] : undefined;
     if (choice?.finish_reason === 'length') {
       throw new ModelError('bad_output', 'the model hit its token cap before answering');
     }
@@ -218,7 +223,7 @@ export function createModel(config: Config) {
         )
         .catch((err: unknown) => classify(err, signal));
       // A server can answer 200 with a body of another shape.
-      if (!Array.isArray(res.data) || res.data.length !== input.length) {
+      if (!Array.isArray(res?.data) || res.data.length !== input.length) {
         throw new ModelError('bad_output', 'wrong number of embeddings returned');
       }
       const sorted = [...res.data].sort((a, b) => a.index - b.index);

@@ -145,6 +145,7 @@ describe('upload and preparation', () => {
 
   it('marks the document failed with a reason when the embedding model is down', async () => {
     stack.fake.embeddingStatus = 503;
+    const calls = stack.fake.embeddingCalls;
     try {
       const res = await upload('# Doc\n\nSome text to embed.\n');
       const id = res.json().id as string;
@@ -156,6 +157,8 @@ describe('upload and preparation', () => {
         },
         { timeout: 10_000 },
       );
+      // One embedding call per run of the job, three runs.
+      expect(stack.fake.embeddingCalls - calls).toBe(3);
     } finally {
       stack.fake.embeddingStatus = 200;
     }

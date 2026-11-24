@@ -15,8 +15,8 @@ async function isLive(queue: Queue, id: string) {
 // Finds rows left unfinished without a live job: the API stopped between saving a row and adding its job, Redis
 // lost a job, BullMQ failed a job that stalled twice (without running the handler), or a result couldn't be
 // written. Each is queued again under a new attempt, at most MAX_REQUEUES times, then failed with max_attempts.
-// While Redis can't be read the whole sweep stops at the first lookup, and a row whose new job can't be added is put
-// back, so an outage never uses up requeues.
+// While Redis can't be read the whole sweep stops at the first lookup, and a row whose new job can't be added gets
+// its requeue back, so an outage never uses them up.
 export async function sweep(
   { db, config }: Pick<JobDeps, 'db' | 'config'>,
   queues: Queues,
@@ -72,9 +72,11 @@ export async function sweep(
     try {
       await enqueue(queues.prepare, { documentId: doc.id, attempt: next }, jobId(doc.id, next));
     } catch (err) {
+      // The attempt stays new: an add that timed out may still land, and its job must find its attempt. If it never
+      // lands, the next sweep finds no live job for this attempt and moves on to the one after.
       await db
         .updateTable('documents')
-        .set({ attempt: doc.attempt, requeues: doc.requeues })
+        .set({ requeues: doc.requeues })
         .where('id', '=', doc.id)
         .where('attempt', '=', next)
         .execute();
@@ -125,7 +127,7 @@ export async function sweep(
     } catch (err) {
       await db
         .updateTable('turns')
-        .set({ attempt: turn.attempt, requeues: turn.requeues })
+        .set({ requeues: turn.requeues })
         .where('id', '=', turn.id)
         .where('attempt', '=', next)
         .execute();
