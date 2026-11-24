@@ -15,7 +15,9 @@ const VALID_KEY = /^[\x21-\x7e]{1,200}$/;
 //   transaction back) if another request has taken the key over since. The key stays in flight: the row can still be
 //   undone if its job can't be added.
 // - `finish` marks the key done once nothing will undo the row.
-// - `release` gives the key up, in the transaction that undoes the row when there is one.
+// - `release` gives the key up, in the transaction that undoes the row when there is one. Without that transaction
+//   (any other failure), a key with a stored response stays: the row it describes was committed, and a repeat gets
+//   that response once the takeover time has passed.
 export interface Claim {
   record(trx: Transaction<Database>, status: number, body: unknown): Promise<void>;
   finish(): Promise<void>;
@@ -74,12 +76,13 @@ export async function claimKey(
     async finish() {
       await mine(db).set({ state: 'done' }).execute();
     },
-    async release(trx = db) {
-      await trx
+    async release(trx) {
+      await (trx ?? db)
         .deleteFrom('idempotency_keys')
         .where('scope', '=', scope)
         .where('key', '=', key)
         .where('claim', '=', claimId)
+        .$if(!trx, (q) => q.where('response', 'is', null))
         .execute();
     },
   };

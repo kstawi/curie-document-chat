@@ -164,7 +164,8 @@ describe('retrying an answer', () => {
     const retry = post(`/messages/${first}/retry`);
     await vi.waitFor(async () => {
       const { rows } = await sql<{ n: number }>`
-        select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'
+        select count(*)::int as n from pg_stat_activity
+        where wait_event_type = 'Lock' and datname = current_database() and query like 'update "turns"%'
       `.execute(stack.db);
       expect(rows[0]!.n).toBeGreaterThan(0);
     });
@@ -407,9 +408,20 @@ describe('a job that cannot be added', () => {
 
   it('puts a retried answer back to failed, on its new attempt, and gives the key back', async () => {
     const id = await failedTurn();
+    await stack.db
+      .updateTable('turns')
+      .set({ debug: JSON.stringify({ error: 'the first failure' }) })
+      .where('id', '=', id)
+      .execute();
     const key = randomUUID();
     failNextAdd(stack.queues.answer);
     expect((await post(`/messages/${id}/retry`, key)).statusCode).toBe(503);
+    const { debug } = await stack.db
+      .selectFrom('turns')
+      .select('debug')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(debug).toEqual({ error: 'the first failure' });
     expect(await turnRow(id)).toMatchObject({
       status: 'failed',
       error_code: 'model_unavailable',
@@ -514,6 +526,88 @@ describe('Idempotency-Key handling', () => {
     expect((await post(`/documents/${missing}/conversations`, key)).statusCode).toBe(404);
     await insertDoc({ id: missing, status: 'ready', embedding_model: 'fake-embed' });
     expect((await post(`/documents/${missing}/conversations`, key)).statusCode).toBe(201);
+  });
+
+  it('keeps a key whose response was stored when the undo itself fails, and replays it later', async () => {
+    const title = randomUUID();
+    const key = randomUUID();
+    const upload = () =>
+      stack.app.inject({
+        method: 'POST',
+        url: '/documents',
+        ...(({ payload, headers }) => ({ payload, headers: { ...headers, ...keyed(key) } }))(
+          multipart({ content: sample }, { title }),
+        ),
+      });
+    // Adding the job fails, and so does the transaction that would undo the row (the second one the route opens).
+    vi.spyOn(stack.queues.prepare as unknown as Queue, 'add').mockRejectedValueOnce(
+      new Error('connection lost'),
+    );
+    const transaction = stack.db.transaction.bind(stack.db);
+    let opened = 0;
+    const spy = vi.spyOn(stack.db, 'transaction').mockImplementation(() => {
+      if (++opened === 2) throw new Error('connection reset');
+      return transaction();
+    });
+    try {
+      expect((await upload()).statusCode).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
+    const docs = () =>
+      stack.db.selectFrom('documents').select('id').where('title', '=', title).execute();
+    const [doc] = await docs();
+    // The row stands, and so does its key: once the takeover time has passed, a repeat gets that row.
+    await stack.db
+      .updateTable('idempotency_keys')
+      .set({ created_at: new Date(Date.now() - 120_000) })
+      .where('key', '=', key)
+      .execute();
+    const repeat = await upload();
+    expect([repeat.statusCode, repeat.json().id]).toEqual([202, doc!.id]);
+    expect(await docs()).toHaveLength(1);
+    await stack.db
+      .updateTable('documents')
+      .set({ status: 'failed' })
+      .where('id', '=', doc!.id)
+      .execute();
+  });
+
+  it('does not take over a key whose request stores its response at that moment', async () => {
+    const settings = { IDEMPOTENCY_KEY_TTL_MS: 3_600_000, IDEMPOTENCY_TAKEOVER_MS: 0 };
+    const key = randomUUID();
+    const first = await claimKey(stack.db, settings, 'test', key, 'same');
+    if (!('claim' in first)) throw new Error('expected a claim');
+    // The second claim pauses right after reading the key, while the first request stores its response.
+    let paused = () => {};
+    const reading = new Promise<void>((resolve) => (paused = resolve));
+    let resume = () => {};
+    const gate = new Promise<void>((resolve) => (resume = resolve));
+    const selects = new Set<unknown>();
+    const pausing = stack.db.withPlugin({
+      transformQuery({ node, queryId }) {
+        if (node.kind === 'SelectQueryNode') selects.add(queryId);
+        return node;
+      },
+      async transformResult({ result, queryId }) {
+        if (selects.has(queryId)) {
+          paused();
+          await gate;
+        }
+        return result;
+      },
+    });
+    const second = claimKey(pausing, settings, 'test', key, 'same');
+    await reading;
+    await stack.db.transaction().execute((trx) => first.claim.record(trx, 202, { x: 1 }));
+    resume();
+    await expect(second).rejects.toMatchObject({ code: 'request_in_progress' });
+    const row = await stack.db
+      .selectFrom('idempotency_keys')
+      .select('response')
+      .where('key', '=', key)
+      .executeTakeFirstOrThrow();
+    expect(row.response).toBe('{"x":1}');
   });
 
   it('lets a request taken over record nothing: its transaction rolls back', async () => {

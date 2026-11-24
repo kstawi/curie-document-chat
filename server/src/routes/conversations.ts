@@ -237,6 +237,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               'turns.status',
               'turns.attempt',
               'turns.error_code',
+              'turns.debug',
               'documents.status as documentStatus',
               'documents.embedding_model as documentModel',
             ])
@@ -307,7 +308,11 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             await db.transaction().execute(async (trx) => {
               await trx
                 .updateTable('turns')
-                .set({ status: 'failed', error_code: turn.error_code })
+                .set({
+                  status: 'failed',
+                  error_code: turn.error_code,
+                  debug: turn.debug === null ? null : JSON.stringify(turn.debug),
+                })
                 .where('id', '=', turn.id)
                 .where('attempt', '=', next)
                 .where('status', '=', 'pending')
