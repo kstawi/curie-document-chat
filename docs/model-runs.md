@@ -26,10 +26,10 @@ Expected:
 
 ### Results (2026-11-24)
 
-Raw output: [runs/2026-11-24-step2.txt](runs/2026-11-24-step2.txt). These runs used the chunker as it was before
-the step 2 review, when the sample note made 5 passages; it now packs its short sections into 3. The Gemma runs were
-repeated after the review (below); the Gemini run was not. The sample is short enough that the whole note was sent
-either way.
+Raw output: [runs/2026-11-24-step2.txt](runs/2026-11-24-step2.txt). These runs used the chunker as it was before the
+step 2 review, when the sample note made 5 passages; it now packs its short sections into 3. The six-question run and
+the full-budget check on Gemma were repeated after the review (below); the other checks and the Gemini run were not.
+The sample is short enough that the whole note was sent either way.
 
 The smoke runs and the full-budget run went through Docker Compose, the containers reaching the model server on the
 host. The over-long prompt, the cancelled request and the Gemini 400 were sent from the host straight to LM Studio
