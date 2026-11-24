@@ -26,7 +26,20 @@ const MIN_CHARS = 400;
 // shortcut: a character-based estimate, not the model's tokenizer; budgets keep a margin for that.
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
-const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t#]*$/;
+// A heading longer than this is treated as an ordinary paragraph. Real headings are short, and the cap keeps every
+// pattern below cheap: run over a long line of spaces or "#", the heading pattern takes time that grows with the
+// square of the length (a crafted 1 MB line would block the worker for minutes).
+const MAX_HEADING_CHARS = 200;
+const HEADING = /^(#{1,6})[ \t]+(.*)$/;
+// An optional closing run of "#", as in "## Results ##"; a "#" inside the title (as in "C#") stays.
+const CLOSING_HASHES = /[ \t]+#+[ \t]*$/;
+
+function parseHeading(line: string): { level: number; title: string } | null {
+  if (line.length > MAX_HEADING_CHARS) return null;
+  const m = HEADING.exec(line);
+  const title = m?.[2]!.replace(CLOSING_HASHES, '').trim();
+  return m && title ? { level: m[1]!.length, title } : null;
+}
 
 type Block = Span & { heading?: { level: number; title: string } };
 
@@ -41,13 +54,11 @@ function blocks(content: string): Block[] {
     const span = { start: pos, end: pos + line.length };
     pos = span.end + 1;
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-    const heading = inFence ? null : HEADING.exec(line);
+    const heading = inFence ? null : parseHeading(line);
     if (heading || line.trim() === '') {
       if (paragraph) out.push(paragraph);
       paragraph = null;
-      if (heading) {
-        out.push({ ...span, heading: { level: heading[1]!.length, title: heading[2]! } });
-      }
+      if (heading) out.push({ ...span, heading });
     } else if (paragraph) {
       paragraph.end = span.end;
     } else {
@@ -93,7 +104,7 @@ function lastEnd(re: RegExp, text: string): number {
 }
 
 // A paragraph too long for one chunk is cut after a sentence, else at a space, else hard (never inside a
-// surrogate pair). Leading and trailing whitespace is left out of every piece, so no piece is empty.
+// surrogate pair). Leading whitespace is skipped and a cut piece's trailing whitespace dropped, so no piece is empty.
 function splitLong(content: string, block: Span): Span[] {
   const pieces: Span[] = [];
   let start = block.start;
@@ -139,7 +150,12 @@ export function chunkText(content: string): Chunk[] {
   for (const block of headingPaths(content)) {
     if (block.path !== undefined) {
       path = block.path;
-      if (current && current.end - current.start < MIN_CHARS) {
+      // Packing stops once the chunk would pass TARGET_CHARS, so a long run of blank lines can't stretch it.
+      if (
+        current &&
+        current.end - current.start < MIN_CHARS &&
+        block.end - current.start <= TARGET_CHARS
+      ) {
         current.end = block.end;
         continue;
       }

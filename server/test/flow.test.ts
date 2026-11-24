@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { sql } from 'kysely';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { answerQuestion } from '../src/jobs/answer.js';
 import { prepareDocument } from '../src/jobs/prepare.js';
+import { createModel } from '../src/model.js';
 import { multipart, startStack } from './helpers/stack.js';
 
 const sample = readFileSync(
@@ -60,7 +62,9 @@ async function finished(turnId: string) {
   let body: Record<string, unknown> = {};
   await vi.waitFor(
     async () => {
-      body = (await stack.app.inject(`/messages/${turnId}`)).json();
+      const res = await stack.app.inject(`/messages/${turnId}`);
+      expect(res.statusCode).toBe(200);
+      body = res.json();
       expect(body.status).not.toBe('pending');
     },
     { timeout: 10_000 },
@@ -211,7 +215,7 @@ describe('job handlers', () => {
       (_, i) => `## Part ${i}\n\n${'Words about this part of the report. '.repeat(12)}`,
     ).join('\n\n');
 
-  it('prepares a document with more chunks than one insert statement takes', async () => {
+  it('prepares a document with 1,200 chunks, written 500 rows per statement', async () => {
     const doc = await insertDoc({ content: sections(1_200) });
     await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
     const after = await stack.db
@@ -234,6 +238,76 @@ describe('job handlers', () => {
       .executeTakeFirstOrThrow();
     expect(after).toEqual({ status: 'failed', error_code: 'too_many_passages' });
     expect(stack.fake.embeddingCalls).toBe(before);
+  });
+
+  it('rejects vectors of the wrong shape from the embedding model', async () => {
+    type Items = { index: number; embedding: unknown }[];
+    for (const transform of [
+      (d: Items) => d.slice(1), // one missing
+      (d: Items) => d.map((x) => ({ ...x, index: 0 })), // the same position twice
+      (d: Items) => d.map((x, i) => (i === 0 ? { ...x, embedding: [0.5] } : x)), // sizes differ
+      (d: Items) => d.map((x) => ({ ...x, embedding: ['not', 'numbers'] })),
+    ]) {
+      stack.fake.embeddingTransform = transform;
+      try {
+        const doc = await insertDoc({});
+        await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+        const after = await stack.db
+          .selectFrom('documents')
+          .select(['status', 'error_code'])
+          .where('id', '=', doc.id)
+          .executeTakeFirstOrThrow();
+        expect(after).toEqual({ status: 'failed', error_code: 'model_bad_output' });
+      } finally {
+        stack.fake.embeddingTransform = undefined;
+      }
+    }
+  });
+
+  it('rejects vectors that do not have the configured size, and names the model with that size', async () => {
+    const config = { ...stack.deps.config, EMBEDDING_DIMENSIONS: 32 };
+    const model = createModel(config);
+    expect(model.embeddingModel).toBe('fake-embed@32');
+    // The fake server ignores the requested size and returns 64 numbers.
+    await expect(model.embed(['text'], 'query')).rejects.toMatchObject({
+      code: 'model_bad_output',
+    });
+    expect(
+      await createModel({ ...config, EMBEDDING_DIMENSIONS: 64 }).embed(['text'], 'query'),
+    ).toHaveLength(1);
+  });
+
+  it('does not mark a document ready if a newer attempt started while it was embedding', async () => {
+    let release = () => {};
+    stack.fake.embeddingWait = new Promise<void>((resolve) => (release = resolve));
+    try {
+      const doc = await insertDoc({});
+      const job = prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+      await vi.waitFor(async () => {
+        const row = await stack.db
+          .selectFrom('documents')
+          .select('status')
+          .where('id', '=', doc.id)
+          .executeTakeFirstOrThrow();
+        expect(row.status).toBe('processing');
+      });
+      await stack.db
+        .updateTable('documents')
+        .set({ attempt: 2, status: 'queued' })
+        .where('id', '=', doc.id)
+        .execute();
+      release();
+      await job;
+      const after = await stack.db
+        .selectFrom('documents')
+        .select(['status', 'attempt'])
+        .where('id', '=', doc.id)
+        .executeTakeFirstOrThrow();
+      expect(after).toEqual({ status: 'queued', attempt: 2 });
+      expect(await chunkCount(doc.id)).toBe(0);
+    } finally {
+      stack.fake.embeddingWait = undefined;
+    }
   });
 
   it('redoes preparation cleanly when run again after a crash', async () => {
@@ -284,6 +358,48 @@ describe('job handlers', () => {
       .where('id', '=', newer.id)
       .executeTakeFirstOrThrow();
     expect(after.status).toBe('pending');
+  });
+
+  it('does not record an answer if a newer attempt started while the model was answering', async () => {
+    const doc = await insertDoc({ status: 'ready', embedding_model: 'fake-embed' });
+    await stack.db
+      .updateTable('documents')
+      .set({ status: 'processing' })
+      .where('id', '=', doc.id)
+      .execute();
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    const conversation = await stack.db
+      .insertInto('conversations')
+      .values({ document_id: doc.id })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const turn = await stack.db
+      .insertInto('turns')
+      .values({ conversation_id: conversation.id, sequence: 1, question: 'Who owned the pilot?' })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    stack.fake.onChat = () => ({
+      wait: held,
+      content: JSON.stringify({
+        outcome: 'answered',
+        answer: 'Mira Chen.',
+        quotes: ['Mira Chen owned the limited pilot.'],
+      }),
+    });
+    stack.fake.chatRequests = [];
+    const job = answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+    await vi.waitFor(() => expect(stack.fake.chatRequests).toHaveLength(1));
+    await stack.db.updateTable('turns').set({ attempt: 2 }).where('id', '=', turn.id).execute();
+    release();
+    await job;
+    const after = await stack.db
+      .selectFrom('turns')
+      .select(['status', 'outcome', 'attempt'])
+      .where('id', '=', turn.id)
+      .executeTakeFirstOrThrow();
+    expect(after).toEqual({ status: 'pending', outcome: null, attempt: 2 });
   });
 
   it('fails an answer whose document changed after the question was accepted', async () => {
@@ -578,7 +694,9 @@ describe('trouble while an answer is in progress', () => {
     };
     await vi.waitFor(
       async () => {
-        body = (await s.app.inject(`/messages/${id}`)).json();
+        const res = await s.app.inject(`/messages/${id}`);
+        expect(res.statusCode).toBe(200);
+        body = res.json();
         expect(body.status).not.toBe('pending');
       },
       { timeout: 10_000 },
@@ -618,6 +736,8 @@ describe('trouble while an answer is in progress', () => {
     );
     await admin.end();
     expect(rowCount).toBeGreaterThan(0);
+    // Let the pool notice the dropped connections, as the db tests do, before the job writes its result.
+    for (let i = 0; i < 3; i++) await vi.waitFor(() => sql`select 1`.execute(s.db));
     release();
     expect(await settle(id)).toMatchObject({ status: 'completed', outcome: 'answered' });
   });

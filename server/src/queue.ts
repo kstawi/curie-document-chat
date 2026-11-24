@@ -37,25 +37,19 @@ export function createQueues(redisUrl: string, prefix: string) {
   };
 }
 
-export class QueueUnavailableError extends Error {}
-
 const ENQUEUE_TIMEOUT_MS = 2_000;
 
-// Gives up after two seconds. If Redis was down when the API started, BullMQ waits for it rather than failing, and
+// Throws if the job can't be added within two seconds; callers treat that as the queue being unavailable. If Redis was down when the API started, BullMQ waits for it rather than failing, and
 // the job may still be added later; the job handlers ignore a job whose row is gone.
 export async function enqueue<T>(queue: Queue<T>, data: T, id: string): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new QueueUnavailableError('timed out')), ENQUEUE_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error('timed out adding a job')), ENQUEUE_TIMEOUT_MS);
   });
   const add = (queue as Queue).add(queue.name, data, { jobId: id });
   add.catch(() => {}); // a late failure after the timeout has already been answered
   try {
     await Promise.race([add, timeout]);
-  } catch (err) {
-    throw err instanceof QueueUnavailableError
-      ? err
-      : new QueueUnavailableError((err as Error).message);
   } finally {
     clearTimeout(timer);
   }

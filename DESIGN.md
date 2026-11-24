@@ -73,9 +73,10 @@ bytes are refused; the size limit (1 MB) applies while the upload streams in. Li
 else changes, so every offset matches the stored text.
 
 **Preparation.** A background job splits the text along headings and paragraphs into chunks of about 300 tokens,
-each an exact slice of the document. A section under 400 characters is packed together with the next one, so a
-glossary with thousands of one-line entries still makes passages of a useful size (and a few hundred of them, not
-tens of thousands). Each chunk is embedded with its heading path, and all chunks and the `ready` status are written
+each an exact slice of the document. A section under 400 characters is packed together with the next one, up to the
+usual chunk size, so a glossary with thousands of one-line entries still makes passages of a useful size (and a few
+hundred of them, not tens of thousands). A heading line over 200 characters counts as a paragraph, which keeps the
+heading pattern fast on crafted input. Each chunk is embedded with its heading path, and all chunks and the `ready` status are written
 in one transaction, 500 rows per statement. A document that would still make more than 5,000 chunks is refused
 before anything is embedded. Every job update is guarded by status and attempt, so a stale or repeated job can't
 overwrite newer state.

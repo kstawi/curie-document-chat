@@ -35,7 +35,10 @@ const schema = z.object({
   EMBEDDING_MODEL: z.string().default('text-embedding-nomic-embed-text-v1.5'),
   EMBEDDING_DOC_PREFIX: z.string().default('search_document: '),
   EMBEDDING_QUERY_PREFIX: z.string().default('search_query: '),
-  EMBEDDING_DIMENSIONS: optionalNumber,
+  EMBEDDING_DIMENSIONS: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().positive().optional(),
+  ),
   PASSAGE_TOKEN_BUDGET: z.coerce.number().int().positive().default(4_000),
 });
 

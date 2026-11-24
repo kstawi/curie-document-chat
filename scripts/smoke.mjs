@@ -72,7 +72,7 @@ for (const [id, question, expected, fact, followUpOf] of cases) {
     done.outcome === expected &&
     (expected !== 'answered' || done.quotes.length > 0) &&
     (!fact || fact.test(text)) &&
-    !/5 million/i.test(done.answer ?? '');
+    !/5 million/i.test(`${done.answer ?? ''} ${done.note ?? ''}`);
   if (ok) passed++;
   console.log(
     `${ok ? 'PASS' : 'FAIL'} ${id} ${ms} ms ${done.status}/${done.outcome ?? done.error?.code}` +

@@ -91,8 +91,9 @@ export function createDb(
   });
   // Postgres can drop a connection at any moment (a restart, a failover, a backend killed for memory). pg reports
   // it as an 'error' event on the client, which the pool re-emits while the client is idle; unhandled, either one
-  // ends the process. Handled, the query in flight fails, the broken client is discarded and the next query gets a
-  // new one. The client listener covers both cases, so the pool's copy is only acknowledged.
+  // ends the process. Handled, the query in flight fails and the broken client is discarded; a query sent before
+  // the pool has noticed can fail too, later ones get new connections. The client listener covers both cases, so
+  // the pool's copy is only acknowledged.
   pool.on('connect', (client) => client.on('error', onConnectionLost));
   pool.on('error', () => {});
   return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });

@@ -3,7 +3,7 @@ import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { buildApp } from '../../src/app.js';
-import { loadConfig, type Config } from '../../src/config.js';
+import { embeddingIdentity, loadConfig, type Config } from '../../src/config.js';
 import { createDb } from '../../src/db.js';
 import { answerQuestion } from '../../src/jobs/answer.js';
 import type { JobDeps } from '../../src/jobs/deps.js';
@@ -42,7 +42,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     new Worker<PrepareJob>(QUEUE_NAMES.prepare, (job) => prepareDocument(deps, job.data), options),
     new Worker<AnswerJob>(QUEUE_NAMES.answer, (job) => answerQuestion(deps, job.data), options),
   ];
-  const app = buildApp({ db, redis, queues, embeddingModel: config.EMBEDDING_MODEL });
+  const app = buildApp({ db, redis, queues, embeddingModel: embeddingIdentity(config) });
 
   return {
     app,

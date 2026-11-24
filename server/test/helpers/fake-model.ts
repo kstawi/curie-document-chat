@@ -15,6 +15,12 @@ export function fakeEmbedding(text: string): number[] {
   return v.map((x) => x / norm);
 }
 
+interface EmbeddingItem {
+  object: 'embedding';
+  index: number;
+  embedding: unknown;
+}
+
 export interface ChatReply {
   status?: number;
   body?: unknown;
@@ -34,6 +40,9 @@ export class FakeModel {
   chatRequests: ChatRequest[] = [];
   embeddingStatus = 200;
   embeddingCalls = 0;
+  // Lets a test hold an embedding reply open, or change the vectors before they are sent.
+  embeddingWait: Promise<void> | undefined;
+  embeddingTransform: ((data: EmbeddingItem[]) => unknown[]) | undefined;
   onChat: (req: ChatRequest) => ChatReply = () => ({ content: '{}' });
   private server: Server | undefined;
 
@@ -67,15 +76,18 @@ export class FakeModel {
       if (this.embeddingStatus !== 200)
         return { status: this.embeddingStatus, body: { error: { message: 'down' } } };
       const input: string[] = Array.isArray(body.input) ? body.input : [body.input];
+      await this.embeddingWait;
+      const items = input.map((text, index): EmbeddingItem => ({
+        object: 'embedding',
+        index,
+        embedding: fakeEmbedding(text),
+      }));
+      const data = this.embeddingTransform?.(items) ?? items;
       return {
         status: 200,
         body: {
           object: 'list',
-          data: input.map((text, index) => ({
-            object: 'embedding',
-            index,
-            embedding: fakeEmbedding(text),
-          })),
+          data,
           model: body.model,
         },
       };

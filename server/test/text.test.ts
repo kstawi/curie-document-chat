@@ -68,7 +68,8 @@ describe('chunkText', () => {
   });
 
   it('never cuts an emoji in half', () => {
-    const text = '😀'.repeat(1_000);
+    // The leading letter puts a high surrogate at the end of the first cut window.
+    const text = `a${'😀'.repeat(1_000)}`;
     const chunks = chunkText(text);
     expectWellFormed(text, chunks);
     expect(chunks.map((c) => c.text).join('')).toBe(text);
@@ -81,6 +82,34 @@ describe('chunkText', () => {
     const chunks = chunkText(text);
     expectWellFormed(text, chunks);
     expect(chunks.length).toBeLessThan(200);
+  });
+
+  it('chunks a very long heading-like line quickly, as a paragraph', () => {
+    for (const filler of ['#', ' ']) {
+      const text = `# ${filler.repeat(160_000)}x\n\nBody.\n`;
+      const started = performance.now();
+      const chunks = chunkText(text);
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expectWellFormed(text, chunks);
+      expect(chunks.every((c) => c.headingPath === '')).toBe(true);
+      expect(sectionIndex(text)).toEqual([]);
+    }
+  });
+
+  it('keeps a "#" inside a heading and drops a closing run of "#"', () => {
+    expect(sectionIndex('# C#\n\nText.\n')[0]?.path).toBe('C#');
+    expect(sectionIndex('## Results ##\n\nText.\n')[0]?.path).toBe('Results');
+  });
+
+  it('keeps packed chunks within the size limit, even across long blank runs', () => {
+    for (const text of [
+      `# Short\n\nTiny.${'\n'.repeat(20_000)}# Next\n\nMore text.\n`,
+      `# Short\n\nTiny.\n\n# ${'Long heading '.repeat(15)}\n\n${'Words in the body. '.repeat(30)}\n`,
+    ]) {
+      const chunks = chunkText(text);
+      expectWellFormed(text, chunks);
+      for (const c of chunks) expect(c.text.length).toBeLessThanOrEqual(1_600);
+    }
   });
 
   it('treats "#" lines inside a fenced code block as code, not headings', () => {

@@ -31,8 +31,9 @@ the step 2 review, when the sample note made 5 passages; it now packs its short 
 repeated since (the local model was unloaded), and the sample is short enough that the whole note was sent either
 way.
 
-The smoke runs went through Docker Compose, the containers reaching the model server on the host. The other checks
-below called LM Studio or Gemini directly from the host.
+The smoke runs and the full-budget run went through Docker Compose, the containers reaching the model server on the
+host. The over-long prompt, the cancelled request and the Gemini 400 were sent from the host straight to LM Studio
+or Gemini.
 
 | Run                                              | Result | Times per question                 | Notes                                                                                                         |
 | ------------------------------------------------ | ------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |

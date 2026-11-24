@@ -97,9 +97,12 @@ export function createModel(config: Config) {
         if (res.data.length !== input.length) {
           throw new ModelError('model_bad_output', 'wrong number of embeddings returned');
         }
-        for (const d of [...res.data].sort((a, b) => a.index - b.index)) {
+        const sorted = [...res.data].sort((a, b) => a.index - b.index);
+        for (const [i, d] of sorted.entries()) {
           const vector = embeddingVector.safeParse(d.embedding);
-          if (!vector.success || vector.data.length !== (vectors[0] ?? vector.data).length) {
+          // Every vector must have the configured size, or else the size of the first one.
+          const size = config.EMBEDDING_DIMENSIONS ?? (vectors[0] ?? vector.data)?.length;
+          if (d.index !== i || !vector.success || vector.data.length !== size) {
             throw new ModelError(
               'model_bad_output',
               'the embedding model returned an unusable vector',
