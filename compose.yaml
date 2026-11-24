@@ -1,0 +1,126 @@
+name: curie-document-chat
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17
+    environment:
+      POSTGRES_USER: curie
+      # Local-only password, never published outside the Compose network. It is placed raw into connection URLs,
+      # so it must use URL-safe characters.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-curie-local}
+      POSTGRES_DB: curie
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP on purpose: on first start the entrypoint runs a temporary server on the Unix socket only, and a
+      # socket check would report healthy before the real server accepts connections.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U curie -d curie']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # The entrypoint fixes data-directory ownership and switches to the postgres user on every start; these are
+    # the only capabilities that needs. FOWNER just lets its chmod succeed instead of logging an ignored error.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    # One process per connection plus background workers; the default max_connections is 100.
+    pids_limit: 200
+    networks: [backend]
+
+  redis:
+    image: redis:7.4.12-alpine
+    # BullMQ needs noeviction. maxmemory sits below the container limit, so a full Redis refuses writes and is less
+    # likely to be killed (forks and buffers can still go over it).
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--maxmemory',
+        '192mb',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # The entrypoint fixes data ownership and switches to the redis user on every start. DAC_OVERRIDE lets it read
+    # the data folder on a restart, when that folder already belongs to redis (checked: restarts fail without it).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 64
+    networks: [backend]
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: runtime
+    environment:
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '127.0.0.1:3000:3000'
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # A small init as PID 1 forwards stop signals to Node at any moment, including during start-up.
+    init: true
+    # Longer than the 15 s statement timeout, so a shutdown can always wait for the statement in flight. Docker's
+    # default here was about 3 s.
+    stop_grace_period: 20s
+    user: node
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 200
+    networks: [backend]
+
+  # Runs only through `docker compose run --rm test`. Uses its own database and Redis index, so tests never touch
+  # the data of a running stack.
+  test:
+    profiles: [test]
+    # Rebuild on every run, so the plain `docker compose run --rm test` never tests stale code.
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: test
+    environment:
+      DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie_test
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [backend]
+
+networks:
+  backend: {}
+
+volumes:
+  pgdata: {}
+  redisdata: {}

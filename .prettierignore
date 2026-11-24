@@ -1,0 +1,5 @@
+package-lock.json
+dist
+coverage
+# Upload fixtures keep their exact bytes (CRLF, BOM) on purpose.
+server/test/fixtures

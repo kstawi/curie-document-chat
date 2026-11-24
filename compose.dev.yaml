@@ -1,0 +1,9 @@
+# For running the API and tests on the host: docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis
+# Ports stay on 127.0.0.1 and away from the usual 5432/6379.
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:55432:5432'
+  redis:
+    ports:
+      - '127.0.0.1:56379:6379'
