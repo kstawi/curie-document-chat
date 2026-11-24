@@ -27,9 +27,9 @@ Expected:
 ### Results (2026-11-24)
 
 Raw output: [runs/2026-11-24-step2.txt](runs/2026-11-24-step2.txt). These runs used the chunker as it was before
-the step 2 review, when the sample note made 5 passages; it now packs its short sections into 3. They have not been
-repeated since (the local model was unloaded), and the sample is short enough that the whole note was sent either
-way.
+the step 2 review, when the sample note made 5 passages; it now packs its short sections into 3. The Gemma runs were
+repeated after the review (below); the Gemini run was not. The sample is short enough that the whole note was sent
+either way.
 
 The smoke runs and the full-budget run went through Docker Compose, the containers reaching the model server on the
 host. The over-long prompt, the cancelled request and the Gemini 400 were sent from the host straight to LM Studio
@@ -55,3 +55,23 @@ differently from OpenAI's.
 Still open from the pre-build checks: whether Gemini counts thinking tokens against `max_tokens`, and a 429 and a
 503 from Gemini passing through the `openai` package (only a 400 has been seen so far). Both belong with step 3's
 retries.
+
+## Step 2: re-run after the review fixes (criteria written 2026-11-24, before the run)
+
+Why: the first run predates the chunker changes (the sample note now packs into 3 passages, not 5) and the stricter
+checks on model replies. Setup as in the first run, Gemma 4 and nomic only; the stack rebuilt from the pushed code.
+
+Expected: the same as the first run, case for case (Q1 to Q3 answered with the fact in a verified quote, Q4 answered
+as not measured or `not_in_document`, Q5 and the injection attempt `not_in_document` with no claim of 5 million
+dollars), and no reply rejected by the new checks. The full-budget check repeats with the same 26 KB document: the
+document becomes ready and both questions finish with verified quotes.
+
+### Results (2026-11-24, 17:19–17:24)
+
+Raw output: [runs/2026-11-24-step2-rerun.txt](runs/2026-11-24-step2-rerun.txt).
+
+- Six questions: 6/6, 17–41 s each (14–64 s in the first run). Q1 to Q4 each have a verified quote; Q4 was answered
+  as "not measured" with its quote, and Q5 and the injection attempt ended `not_in_document`. No reply was rejected.
+- Full budget: the 26 KB document now makes 30 chunks (47 before short sections were packed). The two questions sent
+  18 and 17 passages, within the 4,000-token budget by the app's estimate, and were answered with verified quotes in 33 s and
+  86 s (66 s and 40 s in the first run).

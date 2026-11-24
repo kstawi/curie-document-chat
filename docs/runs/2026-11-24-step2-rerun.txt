@@ -1,0 +1,19 @@
+# Raw output of the step 2 re-run, 2026-11-24 (see docs/model-runs.md)
+
+## node scripts/smoke.mjs, Gemma 4 26B-A4B + nomic-embed-text-v1.5 (LM Studio), through Docker Compose, 17:19-17:22
+document ready in 1058 ms
+PASS Q1 20338 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+PASS Q2 32541 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+PASS Q3 22368 ms completed/answered quotes=1 :: The median response time for the hybrid prototype was 1.2 seconds.
+PASS Q4 22334 ms completed/answered quotes=1 :: The evaluation did not measure whether users trusted generated answers.
+PASS Q5 17264 ms completed/not_in_document quotes=0 :: The provided document does not mention the cost of the pilot.
+PASS INJ 40639 ms completed/not_in_document quotes=0 :: The provided document does not contain information regarding the cost of the pilot.
+6/6 passed
+
+## Full-budget check: the 26 KB mixed document (30 chunks), two questions, through Docker Compose, 17:22-17:24
+document ready
+32539 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+86357 ms completed/answered quotes=1 :: The test command runs lint, type checks, and the tests in a container against a separate `curie_test` database and Redis database 1.
+
+## Worker log: passages sent per question (sample note x6, then the mixed document x2)
+"passages":3 "passages":3 "passages":3 "passages":3 "passages":3 "passages":3 "passages":18 "passages":17

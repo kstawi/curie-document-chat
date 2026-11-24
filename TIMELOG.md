@@ -24,3 +24,5 @@ separately. From step 1 on, times are taken with `date` at both ends; earlier ro
 | 2026-11-24 | 13:17–14:33 | 1    | Repository skeleton, Compose, health checks, first migration, test command; three fresh-agent code reviews and their fixes; commit, push and checks on GitHub                    |
 | 2026-11-24 | 14:33–14:51 | –    | Break: waiting for my go-ahead to load the local model                                                                                                                           |
 | 2026-11-24 | 14:51–17:03 | 2    | Upload, preparation, search and answers with verified quotes; real runs on Gemma 4 and Gemini; three fresh-agent code reviews and their fixes; commit, push and checks on GitHub |
+| 2026-11-24 | 17:03–17:18 | –    | Break: waiting for my go-ahead to load the local model                                                                                                                           |
+| 2026-11-24 | 17:18–17:25 | 2    | Re-run of the real-model checks on Gemma after the review fixes                                                                                                                  |
