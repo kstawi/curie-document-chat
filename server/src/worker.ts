@@ -75,6 +75,11 @@ try {
     sweepNow();
     timer = setInterval(sweepNow, config.SWEEP_INTERVAL_MS);
     if (config.MODEL_STARTUP_CHECK) void checkModels();
+    // With the check off, a result left by an earlier run would be out of date, so /ready shows none.
+    else
+      void withTimeout(redis.del(modelStatusKey(config.QUEUE_PREFIX))).catch((err: Error) =>
+        log.warn({ err: err.message }, 'could not clear the old model check'),
+      );
     log.info('worker started');
   }
 } catch (err) {

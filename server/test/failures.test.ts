@@ -244,6 +244,21 @@ describe('job retries', () => {
     },
   );
 
+  it('runs preparation again when an embedding call takes longer than its timeout', async () => {
+    const calls = stack.fake.embeddingCalls;
+    // Only the first call hangs: the wait is cleared once it has started.
+    stack.fake.embeddingWait = never;
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: sample }),
+    });
+    await vi.waitFor(() => expect(stack.fake.embeddingCalls).toBe(calls + 1));
+    stack.fake.embeddingWait = undefined;
+    await waitForDocument(res.json().id as string, 'ready');
+    expect(stack.fake.embeddingCalls - calls).toBe(2);
+  });
+
   it('fails preparation with internal_error when a passage is too long for the embedding model', async () => {
     stack.fake.embeddingReplies = [
       { status: 400, message: 'input exceeds the available context size' },
@@ -378,6 +393,28 @@ describe('a running job', () => {
     await finished(turnId);
   });
 
+  it('puts a preparation back without spending an attempt when the worker stops, and runs it on restart', async () => {
+    const calls = stack.fake.embeddingCalls;
+    stack.fake.embeddingWait = never;
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: sample }),
+    });
+    const id = res.json().id as string;
+    await vi.waitFor(() => expect(stack.fake.embeddingCalls).toBe(calls + 1));
+
+    await stack.stopWorkers();
+    stack.fake.embeddingWait = undefined;
+    const job = await stack.queues.prepare.getJob(jobId(id, 1));
+    expect(['delayed', 'waiting']).toContain(await job!.getState());
+    expect(job!.attemptsMade).toBe(0);
+    expect((await stack.app.inject(`/documents/${id}`)).json().status).toBe('processing');
+
+    stack.restartWorkers();
+    await waitForDocument(id, 'ready');
+  });
+
   it('goes back to the queue without spending an attempt when the worker stops, and runs on restart', async () => {
     stack.fake.chatRequests = [];
     stack.fake.script({ wait: never });
@@ -399,7 +436,7 @@ describe('a running job', () => {
 describe('the job time limit', () => {
   let limited: Awaited<ReturnType<typeof startStack>>;
   beforeAll(async () => {
-    limited = await startStack({ ANSWER_JOB_TIMEOUT_MS: 1_500 });
+    limited = await startStack({ ANSWER_JOB_TIMEOUT_MS: 1_500, PREPARE_JOB_TIMEOUT_MS: 1_500 });
   });
   afterAll(() => limited?.stop());
 
@@ -435,6 +472,28 @@ describe('the job time limit', () => {
       { timeout: 5_000 },
     );
     expect(limited.fake.chatRequests).toHaveLength(1);
+  });
+
+  it('fails a preparation that runs past it with model_unavailable', async () => {
+    const calls = limited.fake.embeddingCalls;
+    limited.fake.embeddingWait = never;
+    try {
+      const res = await limited.app.inject({
+        method: 'POST',
+        url: '/documents',
+        ...multipart({ content: sample }),
+      });
+      await vi.waitFor(
+        async () => {
+          const doc = (await limited.app.inject(`/documents/${res.json().id}`)).json();
+          expect(doc).toMatchObject({ status: 'failed', error: { code: 'model_unavailable' } });
+        },
+        { timeout: 5_000 },
+      );
+      expect(limited.fake.embeddingCalls - calls).toBe(1);
+    } finally {
+      limited.fake.embeddingWait = undefined;
+    }
   });
 });
 
