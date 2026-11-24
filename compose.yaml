@@ -1,5 +1,23 @@
 name: curie-document-chat
 
+# Model settings, shared by the API (which checks the embedding model) and the worker (which calls the models).
+# Defaults reach LM Studio on the host; set the variables in `.env` for another provider (see `.env.example`).
+x-model-env: &model-env
+  MODEL_BASE_URL: ${MODEL_BASE_URL:-http://host.docker.internal:1234/v1}
+  MODEL_API_KEY: ${MODEL_API_KEY:-not-needed}
+  MODEL_TIMEOUT_MS: ${MODEL_TIMEOUT_MS:-240000}
+  CHAT_MODEL: ${CHAT_MODEL:-google/gemma-4-26b-a4b-qat}
+  CHAT_MAX_TOKENS: ${CHAT_MAX_TOKENS:-1700}
+  CHAT_TEMPERATURE: ${CHAT_TEMPERATURE:-}
+  CHAT_TOP_P: ${CHAT_TOP_P:-}
+  CHAT_TOP_K: ${CHAT_TOP_K:-}
+  CHAT_REASONING_EFFORT: ${CHAT_REASONING_EFFORT:-}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
+  EMBEDDING_DOC_PREFIX: '${EMBEDDING_DOC_PREFIX-search_document: }'
+  EMBEDDING_QUERY_PREFIX: '${EMBEDDING_QUERY_PREFIX-search_query: }'
+  EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+  PASSAGE_TOKEN_BUDGET: ${PASSAGE_TOKEN_BUDGET:-4000}
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.7-pg17
@@ -66,6 +84,7 @@ services:
       dockerfile: server/Dockerfile
       target: runtime
     environment:
+      <<: *model-env
       HOST: 0.0.0.0
       DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
       REDIS_URL: redis://redis:6379
@@ -91,6 +110,34 @@ services:
     # Longer than the 15 s statement timeout, so a shutdown can always wait for the statement in flight. Docker's
     # default here was about 3 s.
     stop_grace_period: 20s
+    user: node
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 200
+    networks: [backend]
+
+  worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: runtime
+    command: ['node', 'dist/worker.js']
+    environment:
+      <<: *model-env
+      DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
+      REDIS_URL: redis://redis:6379
+    # Lets the worker reach a model server on the host. Docker Desktop provides this name; on Linux this line does.
+    extra_hosts: ['host.docker.internal:host-gateway']
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    init: true
+    # The worker waits up to 20 s for the job in hand before exiting.
+    stop_grace_period: 30s
     user: node
     read_only: true
     tmpfs: [/tmp]

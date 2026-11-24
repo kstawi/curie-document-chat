@@ -1,4 +1,10 @@
-import { Kysely, PostgresDialect, type Generated, type GeneratedAlways } from 'kysely';
+import {
+  Kysely,
+  PostgresDialect,
+  type ColumnType,
+  type Generated,
+  type GeneratedAlways,
+} from 'kysely';
 import pg from 'pg';
 
 export interface DocumentsTable {
@@ -28,9 +34,48 @@ export interface ChunksTable {
   embedding: string | null;
 }
 
+export interface ConversationsTable {
+  id: Generated<string>;
+  document_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface Quote {
+  text: string;
+  start: number;
+  end: number;
+  line: number;
+  section: string;
+}
+
+export interface TurnsTable {
+  id: Generated<string>;
+  conversation_id: string;
+  sequence: number;
+  question: string;
+  status: Generated<'pending' | 'completed' | 'failed'>;
+  stage: string | null;
+  outcome: 'answered' | 'not_in_document' | 'unsupported' | null;
+  answer: string | null;
+  note: string | null;
+  quotes: ColumnType<Quote[], string | undefined, string>;
+  search_question: string | null;
+  answer_path: string | null;
+  chat_model: string | null;
+  error_code: string | null;
+  // Never returned by the API: the model's draft, unverified quotes, raw provider errors.
+  debug: ColumnType<unknown, string | null | undefined, string | null>;
+  attempt: Generated<number>;
+  heartbeat_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   documents: DocumentsTable;
   chunks: ChunksTable;
+  conversations: ConversationsTable;
+  turns: TurnsTable;
 }
 
 export function createDb(

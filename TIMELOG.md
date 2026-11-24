@@ -19,6 +19,7 @@ separately. From step 1 on, times are taken with `date` at both ends; earlier ro
 
 ## Build (the clock)
 
-| Date       | From–to     | Step | Work                                                                                                                       |
-| ---------- | ----------- | ---- | -------------------------------------------------------------------------------------------------------------------------- |
-| 2026-11-24 | 13:17–14:29 | 1    | Repository skeleton, Compose, health checks, first migration, test command; three fresh-agent code reviews and their fixes |
+| Date       | From–to     | Step | Work                                                                                                                                                          |
+| ---------- | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-24 | 13:17–14:33 | 1    | Repository skeleton, Compose, health checks, first migration, test command; three fresh-agent code reviews and their fixes; commit, push and checks on GitHub |
+| 2026-11-24 | 14:33–14:51 | –    | Break: waiting for my go-ahead to load the local model                                                                                                        |

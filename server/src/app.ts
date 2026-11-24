@@ -1,5 +1,6 @@
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import {
+  hasZodFastifySchemaValidationErrors,
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
@@ -8,10 +9,17 @@ import type { Redis } from 'ioredis';
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Database } from './db.js';
+import { HttpError } from './errors.js';
+import type { Queues } from './queue.js';
+import { conversationRoutes } from './routes/conversations.js';
+import { documentRoutes } from './routes/documents.js';
 
 export interface AppDeps {
   db: Kysely<Database>;
   redis: Redis;
+  queues: Queues;
+  // Questions are refused for documents embedded by another model; their vectors can't be compared.
+  embeddingModel: string;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -38,10 +46,31 @@ async function check(probe: () => Promise<unknown>): Promise<z.infer<typeof chec
   }
 }
 
-export function buildApp({ db, redis, logger = false }: AppDeps) {
+export function buildApp(deps: AppDeps) {
+  const { db, redis, logger = false } = deps;
   const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  // Clients get a fixed code and a safe message. Unexpected errors are logged as their message only: Fastify's
+  // default handler would log the whole error object, and a pg error can carry row data.
+  app.setErrorHandler((err, request, reply) => {
+    if (err instanceof HttpError) {
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message });
+    }
+    if (hasZodFastifySchemaValidationErrors(err)) {
+      return reply.code(400).send({ error: 'invalid_request', message: err.message });
+    }
+    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    if (status < 500) {
+      return reply.code(status).send({ error: 'invalid_request', message: (err as Error).message });
+    }
+    request.log.error({ err: (err as Error).message }, 'request failed');
+    return reply.code(500).send({ error: 'internal_error', message: 'Something went wrong.' });
+  });
+  app.setNotFoundHandler((_request, reply) =>
+    reply.code(404).send({ error: 'not_found', message: 'No such route.' }),
+  );
 
   // Liveness: the process is up and serving. Says nothing about dependencies on purpose. Logged at warn only,
   // since the container healthcheck calls it every 10 s.
@@ -65,6 +94,9 @@ export function buildApp({ db, redis, logger = false }: AppDeps) {
         .send({ status: ready ? 'ready' : 'not_ready', checks: { database, redis: redisState } });
     },
   );
+
+  void app.register(documentRoutes, deps);
+  void app.register(conversationRoutes, deps);
 
   return app;
 }

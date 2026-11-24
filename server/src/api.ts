@@ -3,6 +3,7 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { migrateToLatest } from './migrate.js';
+import { createQueues } from './queue.js';
 
 const config = loadConfig();
 
@@ -12,7 +13,18 @@ const db = createDb(config.DATABASE_URL, (err) =>
   app.log.warn({ err: err.message }, 'postgres dropped a connection'),
 );
 
-const app = buildApp({ db, redis, logger: { level: config.LOG_LEVEL } });
+const queues = createQueues(config.REDIS_URL, config.QUEUE_PREFIX);
+for (const queue of Object.values(queues)) {
+  queue.on('error', (err) => app.log.warn({ queue: queue.name, err: err.message }, 'queue error'));
+}
+
+const app = buildApp({
+  db,
+  redis,
+  queues,
+  embeddingModel: config.EMBEDDING_MODEL,
+  logger: { level: config.LOG_LEVEL },
+});
 // ioredis reconnects by itself; log the outage, /ready reports it.
 redis.on('error', (err: Error) => app.log.warn({ err: err.message }, 'redis error'));
 
@@ -22,7 +34,11 @@ async function shutdown(reason: string, exitCode = 0) {
   stopping = true;
   app.log.info({ reason }, 'shutting down');
   await app.close();
-  await Promise.allSettled([db.destroy(), redis.quit()]);
+  await Promise.allSettled([
+    db.destroy(),
+    redis.quit(),
+    ...Object.values(queues).map((q) => q.close()),
+  ]);
   process.exit(exitCode);
 }
 // Registered before migrating, so a stop request during start-up takes effect once the statement in flight ends.

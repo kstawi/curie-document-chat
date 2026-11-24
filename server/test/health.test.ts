@@ -3,9 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { createDb } from '../src/db.js';
+import { createQueues } from '../src/queue.js';
 
 const config = loadConfig();
 const db = createDb(config.DATABASE_URL);
+const queues = createQueues(config.REDIS_URL, 'test-health');
+const build = (r: Redis) => buildApp({ db, redis: r, queues, embeddingModel: 'none' });
 const redis = new Redis(config.REDIS_URL, {
   enableOfflineQueue: false,
   lazyConnect: true,
@@ -25,26 +28,31 @@ deadRedis.on('error', () => {}); // its connection errors are the point of the t
 beforeAll(() => redis.connect());
 
 afterAll(async () => {
-  await Promise.allSettled([db.destroy(), redis.quit(), deadRedis.disconnect()]);
+  await Promise.allSettled([
+    db.destroy(),
+    redis.quit(),
+    deadRedis.disconnect(),
+    ...Object.values(queues).map((q) => q.close()),
+  ]);
 });
 
 describe('health and readiness', () => {
   it('reports liveness without touching dependencies', async () => {
-    const app = buildApp({ db, redis: deadRedis });
+    const app = build(deadRedis);
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ok' });
   });
 
   it('is ready when Postgres and Redis answer', async () => {
-    const app = buildApp({ db, redis });
+    const app = build(redis);
     const res = await app.inject({ method: 'GET', url: '/ready' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ready', checks: { database: 'ok', redis: 'ok' } });
   });
 
   it('is not ready, and says which dependency is missing, when Redis is down', async () => {
-    const app = buildApp({ db, redis: deadRedis });
+    const app = build(deadRedis);
     const res = await app.inject({ method: 'GET', url: '/ready' });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({
@@ -55,7 +63,7 @@ describe('health and readiness', () => {
 
   it('gives up on a dependency that never answers after about two seconds', async () => {
     const hungRedis = { ping: () => new Promise(() => {}) } as unknown as Redis;
-    const app = buildApp({ db, redis: hungRedis });
+    const app = build(hungRedis);
     const started = Date.now();
     const res = await app.inject({ method: 'GET', url: '/ready' });
     const elapsed = Date.now() - started;

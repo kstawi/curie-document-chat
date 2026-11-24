@@ -2,10 +2,12 @@ import type { Kysely } from 'kysely';
 import { Migrator, type Migration } from 'kysely/migration';
 import type { Database } from './db.js';
 import * as m0001 from './migrations/0001_initial.js';
+import * as m0002 from './migrations/0002_conversations.js';
 
 // Listed in code rather than read from disk, so the same list works under tsx and from the compiled build.
 const migrations: Record<string, Migration> = {
   '0001_initial': m0001,
+  '0002_conversations': m0002,
 };
 
 // Kysely's Postgres migrator holds an advisory lock while it runs, so two services starting together can't apply
