@@ -18,6 +18,8 @@ export interface JobContext {
   // On the last attempt a temporary failure is recorded on the row instead of retried.
   lastAttempt: boolean;
   log: Logger;
+  // Tells open progress streams that the row changed. Best effort: a stream also re-reads its row on a timer.
+  progress: (stage: string) => void;
 }
 
 // Thrown by a handler cut off by shutdown: the job goes back to the queue without spending an attempt.

@@ -49,13 +49,18 @@ export interface Quote {
   section: string;
 }
 
+// Where a pending answer is; null while it waits in the queue. "rewriting" turns a follow-up into a standalone
+// question and happens only when there are earlier answers.
+export const ANSWER_STAGES = ['rewriting', 'searching', 'writing', 'checking', 'retrying'] as const;
+export type AnswerStage = (typeof ANSWER_STAGES)[number];
+
 export interface TurnsTable {
   id: Generated<string>;
   conversation_id: string;
   sequence: number;
   question: string;
   status: Generated<'pending' | 'completed' | 'failed'>;
-  stage: string | null;
+  stage: AnswerStage | null;
   outcome: 'answered' | 'not_in_document' | 'unsupported' | null;
   answer: string | null;
   note: string | null;

@@ -1,8 +1,8 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { sql, type Selectable } from 'kysely';
 import { z } from 'zod';
-import type { AppDeps } from '../app.js';
-import type { TurnsTable } from '../db.js';
+import { SECURITY_HEADERS, type AppDeps } from '../app.js';
+import { ANSWER_STAGES, type TurnsTable } from '../db.js';
 import { ERROR_MESSAGES, HttpError, type ErrorCode } from '../errors.js';
 import { withIdempotencyKey } from '../idempotency.js';
 import { cleanQuestion } from '../text/clean.js';
@@ -26,7 +26,7 @@ const turnView = z.object({
   sequence: z.number().int(),
   question: z.string(),
   status: z.enum(['pending', 'completed', 'failed']),
-  stage: z.string().nullable(),
+  stage: z.enum(ANSWER_STAGES).nullable(),
   outcome: z.enum(['answered', 'not_in_document', 'unsupported']).nullable(),
   answer: z.string().nullable(),
   // Only for "not_in_document": the model's own explanation, not backed by a quote.
@@ -95,8 +95,17 @@ function checkDocument(status: string, model: string | null, embeddingModel: str
 
 export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   app,
-  { db, queues, embeddingModel, settings },
+  { db, queues, answerEvents, embeddingModel, settings },
 ) => {
+  const readTurn = (id: string) =>
+    db.selectFrom('turns').select(turnColumns).where('id', '=', id).executeTakeFirst();
+
+  // Open progress streams hold their connections, which would keep app.close() waiting; shutting down ends them.
+  const openStreams = new Set<() => void>();
+  app.addHook('preClose', async () => {
+    for (const end of openStreams) end();
+  });
+
   // Questions and answer retries share one limit a minute, with one limiter for both routes.
   const questionLimit = app.rateLimit({
     max: settings.RATE_LIMIT_QUESTIONS_PER_MINUTE,
@@ -360,13 +369,101 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     '/messages/:id',
     { schema: { params: idParams, response: { 200: turnView } } },
     async (request) => {
-      const turn = await db
-        .selectFrom('turns')
-        .select(turnColumns)
-        .where('id', '=', request.params.id)
-        .executeTakeFirst();
+      const turn = await readTurn(request.params.id);
       if (!turn) throw new HttpError(404, 'not_found', 'No message with that id.');
       return toTurnView(turn);
+    },
+  );
+
+  // An answer's progress as server-sent events: `progress` while it is pending, then one `final` with id "final",
+  // then the stream closes. Every event carries the message as GET /messages/:id returns it, read from the row, so
+  // a draft is never sent. Queue events only prompt a re-read; the heartbeat re-reads too, which catches what no
+  // job reports (the sweeper failing a lost answer, events missed while Redis was away).
+  app.get(
+    '/messages/:id/events',
+    { exposeHeadRoute: false, schema: { params: idParams } },
+    async (request, reply) => {
+      // EventSource reconnects whenever a stream closes, the last one included; 204 tells it to stop.
+      if (request.headers['last-event-id'] === 'final') return reply.code(204).send();
+      const id = request.params.id;
+      let done = false;
+      // One read at a time, so events are sent in order and nothing follows the final one. A change that arrives
+      // during a read is picked up by another read straight after.
+      let reading = true;
+      let dirty = false;
+      let lastStage: string | null | undefined;
+      // JSON never contains a raw line break, so each event is a single data line.
+      const send = (turn: TurnRow) => {
+        const data = JSON.stringify(turnView.parse(toTurnView(turn)));
+        if (turn.status !== 'pending') {
+          reply.raw.write(`id: final\nevent: final\ndata: ${data}\n\n`);
+          end();
+        } else if (turn.stage !== lastStage) {
+          lastStage = turn.stage;
+          reply.raw.write(`event: progress\ndata: ${data}\n\n`);
+        }
+      };
+      const refresh = async () => {
+        dirty = true;
+        if (reading || done) return;
+        reading = true;
+        try {
+          while (dirty && !done) {
+            dirty = false;
+            const turn = await readTurn(id);
+            if (done) break;
+            if (turn) send(turn);
+            else end();
+          }
+        } catch (err) {
+          // The next heartbeat reads again.
+          request.log.warn({ turnId: id, err: (err as Error).message }, 'progress read failed');
+        } finally {
+          reading = false;
+        }
+      };
+
+      // Listening starts before the first read, so a change in between is not missed.
+      const unsubscribe = answerEvents.subscribe(id, () => void refresh());
+      let first: TurnRow | undefined;
+      try {
+        first = await readTurn(id);
+      } catch (err) {
+        unsubscribe();
+        throw err;
+      }
+      if (!first) {
+        unsubscribe();
+        throw new HttpError(404, 'not_found', 'No message with that id.');
+      }
+
+      reply.hijack();
+      // Hijacked replies skip the onSend hook, so the security headers are set here. Buffering off for nginx.
+      reply.raw.writeHead(200, {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/event-stream; charset=utf-8',
+        'x-accel-buffering': 'no',
+      });
+      const heartbeat = setInterval(() => {
+        reply.raw.write(': heartbeat\n\n');
+        void refresh();
+      }, settings.STREAM_HEARTBEAT_MS);
+      function end() {
+        if (done) return;
+        done = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+        openStreams.delete(end);
+        reply.raw.end();
+      }
+      openStreams.add(end);
+      // Fires when the client goes away as well as after end().
+      reply.raw.on('close', end);
+
+      send(first);
+      reading = false;
+      if (dirty) void refresh();
+      return reply;
     },
   );
 };

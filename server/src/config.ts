@@ -72,6 +72,9 @@ const schema = z.object({
   ANSWER_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   PREPARE_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
   HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
+  // How often an open progress stream sends a keep-alive comment and re-reads its message. Well under the 60 s a
+  // proxy like nginx waits on a quiet connection.
+  STREAM_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
   // The sweeper queues again rows left without a live job, and gives up after MAX_REQUEUES.
   SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SWEEP_STALE_MS: z.coerce.number().int().positive().default(120_000),

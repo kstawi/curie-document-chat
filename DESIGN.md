@@ -203,3 +203,21 @@ system line, a fake closing tag and a sentence in tag characters were all ignore
 
 **A document that failed for good.** No text, or too many passages: its retry is refused, since the same file would
 fail the same way. I chose that so the web app doesn't offer a retry that can't help.
+
+## Step 5: live progress
+
+**Progress, not tokens.** An answer's progress streams as server-sent events (`GET /messages/:id/events`): waiting,
+rewriting a follow-up, searching, writing, checking quotes, then the verified answer once, and the stream closes.
+Tokens aren't streamed, since text isn't an answer until its quotes are checked. The events and the reconnect rules
+are in `docs/integration.md`.
+
+**Where events come from.** The worker sends only the stage name through BullMQ's queue events. One listener per API
+process hands each event to the streams open for that message, and each stream re-reads its row, so an event carries
+exactly what `GET /messages/:id` returns and no draft passes through Redis. Every 15 s a stream sends a heartbeat
+comment and re-reads the row too, which catches what no job reports: the sweeper failing a lost answer, or events
+missed while Redis was away.
+
+**Ending.** The final event has the id `final`. `EventSource` reconnects after every close, so a request carrying
+`Last-Event-ID: final` gets 204, which stops it; a client arriving after the end gets the stored answer once.
+Shutting down ends open streams first, since they would keep the server from closing. Open streams have no cap of
+their own yet; each costs one row read per change and per heartbeat.

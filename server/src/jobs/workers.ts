@@ -14,12 +14,18 @@ export function createWorkers(deps: JobDeps, connection: ConnectionOptions, pref
   const processor =
     <T>(handler: Handler<T>, timeoutMs: number) =>
     async (job: Job<T>, token?: string) => {
+      const log = deps.log.child({ queue: job.queueName, jobId: job.id });
       const ctx: JobContext = {
         signal: AbortSignal.any([shutdown.signal, AbortSignal.timeout(timeoutMs)]),
         shutdown: shutdown.signal,
         // BullMQ counts an attempt once it has failed, so during the last one attemptsMade is attempts - 1.
         lastAttempt: job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
-        log: deps.log.child({ queue: job.queueName, jobId: job.id }),
+        log,
+        // Only the stage name goes through Redis; streams read everything else from the row.
+        progress: (stage) =>
+          void job
+            .updateProgress(stage)
+            .catch((err: Error) => log.warn({ err: err.message }, 'progress event not sent')),
       };
       try {
         await handler(deps, job.data, ctx);

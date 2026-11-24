@@ -4,6 +4,7 @@ import { pino } from 'pino';
 import { buildApp } from '../../src/app.js';
 import { embeddingIdentity, loadConfig, type Config } from '../../src/config.js';
 import { createDb } from '../../src/db.js';
+import { createAnswerEvents } from '../../src/events.js';
 import type { JobContext, JobDeps } from '../../src/jobs/deps.js';
 import { createWorkers } from '../../src/jobs/workers.js';
 import { createModel } from '../../src/model.js';
@@ -41,6 +42,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
   const queues = createQueues(queueRedisUrl ?? config.REDIS_URL, config.QUEUE_PREFIX, config);
   // As in api.ts; for a queue pointed at a closed port, the connection errors are the point.
   for (const queue of Object.values(queues)) queue.on('error', () => {});
+  const answerEvents = createAnswerEvents(config.REDIS_URL, config.QUEUE_PREFIX, () => {});
   const deps: JobDeps = { db, model: createModel(config), log: pino({ level: 'silent' }), config };
   const startWorkers = () => {
     const w = createWorkers(deps, { url: config.REDIS_URL }, config.QUEUE_PREFIX);
@@ -52,6 +54,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     db,
     redis,
     queues,
+    answerEvents,
     embeddingModel: embeddingIdentity(config),
     modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
     settings: config,
@@ -64,6 +67,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     fake,
     deps,
     queues,
+    answerEvents,
     // Stops the workers as a shutdown would (calls in flight cancelled, their jobs put back).
     stopWorkers: () => workers.close(),
     restartWorkers() {
@@ -80,7 +84,10 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
               Object.values(queues).map((q) => q.obliterate({ force: true })),
             );
           }
-          await Promise.allSettled(Object.values(queues).map((q) => q.close()));
+          await Promise.allSettled([
+            answerEvents.close(),
+            ...Object.values(queues).map((q) => q.close()),
+          ]);
         })(),
         new Promise((resolve) => setTimeout(resolve, 2_000)),
       ]);
@@ -124,6 +131,7 @@ export function jobContext(overrides: Partial<JobContext> = {}): JobContext {
     shutdown: new AbortController().signal,
     lastAttempt: true,
     log: pino({ level: 'silent' }),
+    progress: () => {},
     ...overrides,
   };
 }

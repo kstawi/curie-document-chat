@@ -416,6 +416,7 @@ describe('logs', () => {
       db: stack.db,
       redis: stack.redis,
       queues: stack.queues,
+      answerEvents: stack.answerEvents,
       embeddingModel: 'fake-embed',
       modelStatusKey: modelStatusKey(stack.deps.config.QUEUE_PREFIX),
       settings: stack.deps.config,

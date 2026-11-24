@@ -13,6 +13,7 @@ const build = (r: Redis) =>
     db,
     redis: r,
     queues,
+    answerEvents: { subscribe: () => () => {} },
     embeddingModel: 'none',
     modelStatusKey: 'test-health:model-status',
     settings: config,

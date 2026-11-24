@@ -149,3 +149,17 @@ in `scripts/injection-check.mjs`. Both passed 3 of 3:
 4. The question asking for a link: the answer had none either time. In the first run its thinking call hit the
    1,700-token cap and the thinking-off retry answered (123 s): the first time that retry happened on its own, at the
    default settings, on a real model. In the second it finished on the first call (85 s).
+
+## Step 5: live progress on a real model (a hand check, no criteria written beforehand)
+
+Raw output: [runs/2026-11-24-step5-stream.txt](runs/2026-11-24-step5-stream.txt), from `scripts/stream-check.mjs`.
+A first question and a follow-up, each followed over `GET /messages/:id/events` from the moment it was asked.
+
+- The first question showed `searching` and `writing` at once, a heartbeat at 15 s, then `checking` and the final
+  answer at 23 s, with one verified quote; the stream closed itself.
+- The follow-up showed `rewriting` for 3 s, then `searching` and `writing`, two heartbeats, and the final answer at
+  42 s with two verified quotes.
+- Reconnecting with `Last-Event-ID: final` got 204 both times; a client opening the stream after the end got the
+  stored answer once and the close.
+- `checking` took milliseconds, so the first question's stream showed it just before the final event and the
+  follow-up's not at all: a stage that is over before the stream re-reads the row is skipped, as designed.

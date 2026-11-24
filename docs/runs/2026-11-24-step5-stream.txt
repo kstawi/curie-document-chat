@@ -1,0 +1,37 @@
+# Raw output of the step 5 stream check, 2026-11-24 23:00 (see docs/model-runs.md)
+
+## scripts/stream-check.mjs on the step 5 build; Gemma 4 26B-A4B + nomic-embed-text-v1.5 (LM Studio), through
+## Docker Compose. Times are seconds since each stream opened.
+document ready
+
+Question: Who owned the limited pilot?
+  0.0 s  HTTP 200 text/event-stream; charset=utf-8
+  0.0 s  progress: status pending, stage searching
+  0.0 s  progress: status pending, stage writing
+ 15.0 s  : heartbeat
+ 22.9 s  progress: status pending, stage checking
+ 22.9 s  final (id final): status completed, stage null, outcome answered, 1 quote(s)
+ 22.9 s  stream closed by the server
+Answer: Mira Chen owned the limited pilot.
+Reconnect with Last-Event-ID: final -> HTTP 204
+Late client:
+  0.0 s  HTTP 200 text/event-stream; charset=utf-8
+  0.0 s  final (id final): status completed, stage null, outcome answered, 1 quote(s)
+  0.0 s  stream closed by the server
+
+Question: And what did they decide about it?
+  0.0 s  HTTP 200 text/event-stream; charset=utf-8
+  0.0 s  progress: status pending, stage null
+  0.0 s  progress: status pending, stage rewriting
+  3.1 s  progress: status pending, stage searching
+  3.1 s  progress: status pending, stage writing
+ 15.0 s  : heartbeat
+ 30.0 s  : heartbeat
+ 42.2 s  final (id final): status completed, stage null, outcome answered, 2 quote(s)
+ 42.2 s  stream closed by the server
+Answer: On 18 March 2026, the team decided to keep keyword search as the default while running a limited hybrid pilot.
+Reconnect with Last-Event-ID: final -> HTTP 204
+Late client:
+  0.0 s  HTTP 200 text/event-stream; charset=utf-8
+  0.0 s  final (id final): status completed, stage null, outcome answered, 2 quote(s)
+  0.0 s  stream closed by the server

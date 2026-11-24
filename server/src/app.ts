@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { Config } from './config.js';
 import type { Database } from './db.js';
 import { HttpError } from './errors.js';
+import type { AnswerEvents } from './events.js';
 import { withTimeout, type Queues } from './queue.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { documentRoutes } from './routes/documents.js';
@@ -20,6 +21,7 @@ export interface AppDeps {
   db: Kysely<Database>;
   redis: Redis;
   queues: Queues;
+  answerEvents: Pick<AnswerEvents, 'subscribe'>;
   // Questions are refused for documents embedded by another model; their vectors can't be compared.
   embeddingModel: string;
   // Where the worker leaves its start-up model check.
@@ -34,6 +36,7 @@ export interface AppDeps {
     | 'ALLOWED_ORIGINS'
     | 'RATE_LIMIT_UPLOADS_PER_MINUTE'
     | 'RATE_LIMIT_QUESTIONS_PER_MINUTE'
+    | 'STREAM_HEARTBEAT_MS'
   >;
   logger?: FastifyServerOptions['logger'];
 }
@@ -52,7 +55,7 @@ const readyBody = z.object({
 
 // A JSON API needs few of the usual security headers: no sniffing, no framing, no referrer, nothing cached, and a
 // policy that lets a response load nothing.
-const SECURITY_HEADERS = {
+export const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
   'x-frame-options': 'DENY',

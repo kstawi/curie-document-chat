@@ -1,3 +1,4 @@
+import type { AnswerStage } from '../db.js';
 import { ERROR_MESSAGES, type ErrorCode } from '../errors.js';
 import { ModelError, type ModelAnswer } from '../model.js';
 import { answerPrompt, rewritePrompt, type EarlierTurn } from '../prompt.js';
@@ -26,34 +27,32 @@ const isRetryable = (err: unknown): err is ModelError =>
 export async function answerQuestion(
   { db, model, config }: JobDeps,
   { turnId, attempt }: AnswerJob,
-  { signal, shutdown, lastAttempt, log }: JobContext,
+  { signal, shutdown, lastAttempt, log, progress }: JobContext,
 ) {
-  const setStage = (stage: string) =>
+  const touch = (stage?: AnswerStage) =>
     db
       .updateTable('turns')
-      .set({ stage, heartbeat_at: new Date(), updated_at: new Date() })
+      .set(
+        stage
+          ? { stage, heartbeat_at: new Date(), updated_at: new Date() }
+          : { heartbeat_at: new Date() },
+      )
       .where('id', '=', turnId)
       .where('attempt', '=', attempt)
       .where('status', '=', 'pending')
       .executeTakeFirst();
+  // The row first, then the event, so a stream that re-reads on the event finds the new stage.
+  const setStage = async (stage: AnswerStage) => {
+    await touch(stage);
+    progress(stage);
+  };
 
-  const started = await setStage('searching');
+  const started = await touch();
   if (!started.numUpdatedRows) {
     log.info({ turnId, attempt }, 'skipped a stale answer job');
     return;
   }
-  const stopHeartbeat = startHeartbeat(
-    () =>
-      db
-        .updateTable('turns')
-        .set({ heartbeat_at: new Date() })
-        .where('id', '=', turnId)
-        .where('attempt', '=', attempt)
-        .where('status', '=', 'pending')
-        .execute(),
-    config.HEARTBEAT_MS,
-    log,
-  );
+  const stopHeartbeat = startHeartbeat(() => touch(), config.HEARTBEAT_MS, log);
   // Known once the turn is read, so every later log line names the document too.
   let documentId: string | undefined;
   // What happened on the way (rewrite, shrinking, a first call that failed), kept in the debug column either way.
@@ -96,6 +95,7 @@ export async function answerQuestion(
     // A follow-up like "and the hybrid one?" finds nothing on its own words, so search uses a standalone version.
     let searchQuestion = turn.question;
     if (history.length) {
+      await setStage('rewriting');
       try {
         searchQuestion = await model.rewrite(rewritePrompt(turn.question, history), signal);
       } catch (err) {
@@ -109,6 +109,7 @@ export async function answerQuestion(
       }
     }
 
+    await setStage('searching');
     const [questionVector] = await model.embed([searchQuestion], 'query', signal);
     const search = (budget: number) =>
       searchDocument(db, turn.documentId, searchQuestion, questionVector!, budget);

@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import { buildApp } from './app.js';
 import { embeddingIdentity, loadConfig } from './config.js';
 import { createDb } from './db.js';
+import { createAnswerEvents } from './events.js';
 import { migrateToLatest } from './migrate.js';
 import { createQueues, modelStatusKey } from './queue.js';
 
@@ -17,11 +18,15 @@ const queues = createQueues(config.REDIS_URL, config.QUEUE_PREFIX, config);
 for (const queue of Object.values(queues)) {
   queue.on('error', (err) => app.log.warn({ queue: queue.name, err: err.message }, 'queue error'));
 }
+const answerEvents = createAnswerEvents(config.REDIS_URL, config.QUEUE_PREFIX, (err) =>
+  app.log.warn({ err: err.message }, 'queue events error'),
+);
 
 const app = buildApp({
   db,
   redis,
   queues,
+  answerEvents,
   embeddingModel: embeddingIdentity(config),
   modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
   settings: config,
@@ -39,6 +44,7 @@ async function shutdown(reason: string, exitCode = 0) {
   await Promise.allSettled([
     db.destroy(),
     redis.quit(),
+    answerEvents.close(),
     ...Object.values(queues).map((q) => q.close()),
   ]);
   process.exit(exitCode);
