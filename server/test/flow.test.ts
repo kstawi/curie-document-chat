@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { answerQuestion } from '../src/jobs/answer.js';
+import { prepareDocument } from '../src/jobs/prepare.js';
 import { multipart, startStack } from './helpers/stack.js';
 
 const sample = readFileSync(
@@ -89,7 +90,7 @@ describe('upload and preparation', () => {
       .select('text')
       .where('document_id', '=', id)
       .execute();
-    expect(chunks).toHaveLength(5);
+    expect(chunks).toHaveLength(3);
     const content = (await stack.app.inject(`/documents/${id}/content`)).json();
     expect(content.content).toBe(sample);
   });
@@ -131,13 +132,183 @@ describe('upload and preparation', () => {
     try {
       const res = await upload('# Doc\n\nSome text to embed.\n');
       const id = res.json().id as string;
-      await vi.waitFor(async () => {
-        const doc = (await stack.app.inject(`/documents/${id}`)).json();
-        expect(doc.status).toBe('failed');
-        expect(doc.error.code).toBe('model_unavailable');
-      });
+      await vi.waitFor(
+        async () => {
+          const doc = (await stack.app.inject(`/documents/${id}`)).json();
+          expect(doc.status).toBe('failed');
+          expect(doc.error.code).toBe('model_unavailable');
+        },
+        { timeout: 10_000 },
+      );
     } finally {
       stack.fake.embeddingStatus = 200;
+    }
+  });
+
+  it('fails a document with headings and no text as empty', async () => {
+    const id = (await upload('# Title\n\n## Section\n')).json().id as string;
+    await vi.waitFor(
+      async () =>
+        expect((await stack.app.inject(`/documents/${id}`)).json().error?.code).toBe(
+          'empty_document',
+        ),
+      { timeout: 10_000 },
+    );
+  });
+
+  it('refuses questions about a document whose preparation failed', async () => {
+    const doc = await stack.db
+      .insertInto('documents')
+      .values({
+        title: 'broken',
+        format: 'text',
+        content: 'text',
+        status: 'failed',
+        error_code: 'model_unavailable',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const conversation = (
+      await stack.app.inject({ method: 'POST', url: `/documents/${doc.id}/conversations` })
+    ).json().id;
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation}/messages`,
+      payload: { question: 'Anything?' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('document_failed');
+  });
+});
+
+describe('job handlers', () => {
+  const insertDoc = (values: Record<string, unknown>) =>
+    stack.db
+      .insertInto('documents')
+      .values({ title: 'job', format: 'markdown', content: sample, ...values })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+  const chunkCount = async (id: string) =>
+    (await stack.db.selectFrom('chunks').select('id').where('document_id', '=', id).execute())
+      .length;
+
+  it('ignores a preparation job for a document that is gone, already ready, or on a newer attempt', async () => {
+    await expect(
+      prepareDocument(stack.deps, { documentId: randomUUID(), attempt: 1 }),
+    ).resolves.toBeUndefined();
+    const ready = await insertDoc({ status: 'ready', embedding_model: 'fake-embed' });
+    await prepareDocument(stack.deps, { documentId: ready.id, attempt: 1 });
+    expect(await chunkCount(ready.id)).toBe(0);
+    const newer = await insertDoc({ attempt: 2 });
+    await prepareDocument(stack.deps, { documentId: newer.id, attempt: 1 });
+    expect(await chunkCount(newer.id)).toBe(0);
+  });
+
+  // Sections of about 450 characters each, so every section becomes its own chunk.
+  const sections = (n: number) =>
+    Array.from(
+      { length: n },
+      (_, i) => `## Part ${i}\n\n${'Words about this part of the report. '.repeat(12)}`,
+    ).join('\n\n');
+
+  it('prepares a document with more chunks than one insert statement takes', async () => {
+    const doc = await insertDoc({ content: sections(1_200) });
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    const after = await stack.db
+      .selectFrom('documents')
+      .select('status')
+      .where('id', '=', doc.id)
+      .executeTakeFirstOrThrow();
+    expect(after.status).toBe('ready');
+    expect(await chunkCount(doc.id)).toBe(1_200);
+  });
+
+  it('refuses a document that would make more than 5,000 chunks, before embedding anything', async () => {
+    const doc = await insertDoc({ content: sections(5_001) });
+    const before = stack.fake.embeddingCalls;
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    const after = await stack.db
+      .selectFrom('documents')
+      .select(['status', 'error_code'])
+      .where('id', '=', doc.id)
+      .executeTakeFirstOrThrow();
+    expect(after).toEqual({ status: 'failed', error_code: 'too_many_passages' });
+    expect(stack.fake.embeddingCalls).toBe(before);
+  });
+
+  it('redoes preparation cleanly when run again after a crash', async () => {
+    const doc = await insertDoc({ status: 'processing' });
+    await stack.db
+      .insertInto('chunks')
+      .values({ document_id: doc.id, ordinal: 0, start_offset: 0, end_offset: 5, text: 'stale' })
+      .execute();
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    const chunks = await stack.db
+      .selectFrom('chunks')
+      .select('text')
+      .where('document_id', '=', doc.id)
+      .execute();
+    expect(chunks).toHaveLength(3);
+    expect(chunks.map((c) => c.text)).not.toContain('stale');
+  });
+
+  it('ignores an answer job for a turn that is final or on a newer attempt', async () => {
+    const doc = await insertDoc({ status: 'ready', embedding_model: 'fake-embed' });
+    const conversation = await stack.db
+      .insertInto('conversations')
+      .values({ document_id: doc.id })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const turn = await stack.db
+      .insertInto('turns')
+      .values({
+        conversation_id: conversation.id,
+        sequence: 1,
+        question: 'Q?',
+        status: 'completed',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    stack.fake.chatRequests = [];
+    await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+    const newer = await stack.db
+      .insertInto('turns')
+      .values({ conversation_id: conversation.id, sequence: 2, question: 'Q?', attempt: 2 })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await answerQuestion(stack.deps, { turnId: newer.id, attempt: 1 });
+    expect(stack.fake.chatRequests).toHaveLength(0);
+    const after = await stack.db
+      .selectFrom('turns')
+      .select(['status'])
+      .where('id', '=', newer.id)
+      .executeTakeFirstOrThrow();
+    expect(after.status).toBe('pending');
+  });
+
+  it('fails an answer whose document changed after the question was accepted', async () => {
+    for (const [values, code] of [
+      [{ status: 'processing' }, 'document_not_ready'],
+      [{ status: 'ready', embedding_model: 'another-model' }, 'embedding_model_changed'],
+    ] as const) {
+      const doc = await insertDoc(values);
+      const conversation = await stack.db
+        .insertInto('conversations')
+        .values({ document_id: doc.id })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const turn = await stack.db
+        .insertInto('turns')
+        .values({ conversation_id: conversation.id, sequence: 1, question: 'Q?' })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+      const after = await stack.db
+        .selectFrom('turns')
+        .select(['status', 'error_code'])
+        .where('id', '=', turn.id)
+        .executeTakeFirstOrThrow();
+      expect(after).toEqual({ status: 'failed', error_code: code });
     }
   });
 });
@@ -224,6 +395,7 @@ describe('questions and answers', () => {
     ],
     ['returns the wrong JSON shape', { content: '{"answer":"x"}' }, 'model_bad_output'],
     ['answers 500', { status: 500 }, 'model_unavailable'],
+    ['answers 429', { status: 429 }, 'model_unavailable'],
     ['answers 400', { status: 400 }, 'model_rejected'],
   ])(
     'fails the answer, and frees the conversation, when the model %s',
@@ -431,8 +603,13 @@ describe('trouble while an answer is in progress', () => {
         quotes: ['Mira Chen owned the limited pilot.'],
       }),
     });
+    s.fake.chatRequests = [];
     const id = await askIn('Who owned the pilot?');
-    await vi.waitFor(() => expect(s.fake.chatRequests.length).toBeGreaterThan(0));
+    // Wait until the job is really holding at the model call before dropping its connections.
+    await vi.waitFor(async () => {
+      expect(s.fake.chatRequests).toHaveLength(1);
+      expect((await s.app.inject(`/messages/${id}`)).json().stage).toBe('writing');
+    });
     const pg = await import('pg');
     const admin = new pg.default.Client({ connectionString: process.env.DATABASE_URL });
     await admin.connect();

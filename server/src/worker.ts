@@ -3,7 +3,8 @@ import { pino } from 'pino';
 import { loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { answerQuestion } from './jobs/answer.js';
-import { prepareDocument, type JobDeps } from './jobs/prepare.js';
+import type { JobDeps } from './jobs/deps.js';
+import { prepareDocument } from './jobs/prepare.js';
 import { migrateToLatest } from './migrate.js';
 import { createModel } from './model.js';
 import { QUEUE_NAMES, type AnswerJob, type PrepareJob } from './queue.js';
@@ -34,6 +35,10 @@ const workers = [
 ];
 for (const worker of workers) {
   worker.on('error', (err) => log.warn({ queue: worker.name, err: err.message }, 'queue error'));
+  // Handlers record their own failures on the row; this catches one that threw before or while doing that.
+  worker.on('failed', (job, err) =>
+    log.error({ queue: worker.name, jobId: job?.id, err: err.message }, 'job failed'),
+  );
 }
 
 let stopping = false;

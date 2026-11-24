@@ -1,10 +1,10 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { sql } from 'kysely';
+import { sql, type Selectable } from 'kysely';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
-import type { Quote } from '../db.js';
+import type { TurnsTable } from '../db.js';
 import { ERROR_MESSAGES, HttpError, type ErrorCode } from '../errors.js';
-import { enqueue, jobId, QueueUnavailableError } from '../queue.js';
+import { enqueue, jobId } from '../queue.js';
 
 const idParams = z.object({ id: z.uuid() });
 
@@ -53,22 +53,7 @@ const turnColumns = [
   'updated_at',
 ] as const;
 
-type TurnRow = {
-  id: string;
-  conversation_id: string;
-  sequence: number;
-  question: string;
-  status: 'pending' | 'completed' | 'failed';
-  stage: string | null;
-  outcome: 'answered' | 'not_in_document' | 'unsupported' | null;
-  answer: string | null;
-  note: string | null;
-  quotes: Quote[];
-  error_code: string | null;
-  chat_model: string | null;
-  created_at: Date;
-  updated_at: Date;
-};
+type TurnRow = Pick<Selectable<TurnsTable>, (typeof turnColumns)[number]>;
 
 const toTurnView = (t: TurnRow) => ({
   id: t.id,
@@ -158,6 +143,9 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         .where('conversations.id', '=', request.params.id)
         .executeTakeFirst();
       if (!conversation) throw new HttpError(404, 'not_found', 'No conversation with that id.');
+      if (conversation.status === 'failed') {
+        throw new HttpError(409, 'document_failed', ERROR_MESSAGES.document_failed);
+      }
       if (conversation.status !== 'ready') {
         throw new HttpError(409, 'document_not_ready', ERROR_MESSAGES.document_not_ready);
       }
@@ -186,9 +174,9 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
       }
       try {
         await enqueue(queues.answer, { turnId: turn.id, attempt: 1 }, jobId(turn.id, 1));
-      } catch (err) {
-        if (!(err instanceof QueueUnavailableError)) throw err;
-        // A pending row would lock the conversation (one pending answer at a time), so it is removed.
+      } catch {
+        // `enqueue` only fails when the queue is unavailable. A pending row would lock the conversation (one pending
+        // answer at a time), so it is removed.
         await db.deleteFrom('turns').where('id', '=', turn.id).execute();
         throw new HttpError(
           503,

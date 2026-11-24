@@ -1,5 +1,5 @@
 import type { Quote } from '../db.js';
-import type { Chunk } from './chunk.js';
+import { sectionAt, type Section } from './chunk.js';
 
 export interface Range {
   start: number;
@@ -76,7 +76,7 @@ export function verifyQuotes(
   content: string,
   quotes: string[],
   sent: Range[],
-  chunks: Pick<Chunk, 'start' | 'end' | 'headingPath'>[],
+  sections: Section[],
 ): QuoteCheck {
   const ranges = mergeRanges(content, sent).map((r) => ({
     ...r,
@@ -95,7 +95,7 @@ export function verifyQuotes(
       if (at < 0) continue;
       const start = range.map[at]!;
       const end = range.map[at + needle.length - 1]! + 1;
-      const section = chunks.find((c) => start >= c.start && start < c.end)?.headingPath ?? '';
+      const section = sectionAt(sections, start);
       const line = content.slice(0, start).split('\n').length;
       found = { text: content.slice(start, end), start, end, line, section };
       break;

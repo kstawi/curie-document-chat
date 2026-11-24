@@ -5,3 +5,4 @@ coverage
 server/test/fixtures
 # The sample is the brief's own text, kept byte for byte.
 samples
+docs/runs

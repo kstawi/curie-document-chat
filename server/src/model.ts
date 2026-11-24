@@ -4,7 +4,7 @@ import type {
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions';
 import { z } from 'zod';
-import type { Config } from './config.js';
+import { embeddingIdentity, type Config } from './config.js';
 
 export const modelAnswer = z.strictObject({
   outcome: z.enum(['answered', 'not_in_document']),
@@ -31,6 +31,9 @@ const answerFormat = {
     },
   },
 } as const;
+
+// Model output is checked at the edge like any other input.
+const embeddingVector = z.array(z.number().finite()).min(1);
 
 export type ModelErrorCode = 'model_unavailable' | 'model_rejected' | 'model_bad_output';
 
@@ -74,7 +77,7 @@ export function createModel(config: Config) {
 
   return {
     chatModel: config.CHAT_MODEL,
-    embeddingModel: config.EMBEDDING_MODEL,
+    embeddingModel: embeddingIdentity(config),
 
     async embed(texts: string[], kind: 'document' | 'query'): Promise<number[][]> {
       const prefix =
@@ -94,7 +97,16 @@ export function createModel(config: Config) {
         if (res.data.length !== input.length) {
           throw new ModelError('model_bad_output', 'wrong number of embeddings returned');
         }
-        vectors.push(...[...res.data].sort((a, b) => a.index - b.index).map((d) => d.embedding));
+        for (const d of [...res.data].sort((a, b) => a.index - b.index)) {
+          const vector = embeddingVector.safeParse(d.embedding);
+          if (!vector.success || vector.data.length !== (vectors[0] ?? vector.data).length) {
+            throw new ModelError(
+              'model_bad_output',
+              'the embedding model returned an unusable vector',
+            );
+          }
+          vectors.push(vector.data);
+        }
       }
       return vectors;
     },

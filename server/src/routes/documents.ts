@@ -1,12 +1,14 @@
 import multipart from '@fastify/multipart';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import type { Selectable } from 'kysely';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
+import type { DocumentsTable } from '../db.js';
 import { HttpError } from '../errors.js';
-import { enqueue, jobId, QueueUnavailableError } from '../queue.js';
+import { enqueue, jobId } from '../queue.js';
 import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../text/decode.js';
 
-export const MAX_TEXT_BYTES = 1024 * 1024;
+const MAX_TEXT_BYTES = 1024 * 1024;
 
 const documentView = z.object({
   id: z.uuid(),
@@ -20,27 +22,6 @@ const documentView = z.object({
 
 const idParams = z.object({ id: z.uuid() });
 
-type DocumentRow = {
-  id: string;
-  title: string;
-  format: 'markdown' | 'text' | 'pdf';
-  status: 'queued' | 'processing' | 'ready' | 'failed';
-  error_code: string | null;
-  error_message: string | null;
-  created_at: Date;
-  updated_at: Date;
-};
-
-const toView = (d: DocumentRow) => ({
-  id: d.id,
-  title: d.title,
-  format: d.format,
-  status: d.status,
-  error: d.error_code ? { code: d.error_code, message: d.error_message ?? '' } : null,
-  createdAt: d.created_at,
-  updatedAt: d.updated_at,
-});
-
 const columns = [
   'id',
   'title',
@@ -51,6 +32,16 @@ const columns = [
   'created_at',
   'updated_at',
 ] as const;
+
+const toView = (d: Pick<Selectable<DocumentsTable>, (typeof columns)[number]>) => ({
+  id: d.id,
+  title: d.title,
+  format: d.format,
+  status: d.status,
+  error: d.error_code ? { code: d.error_code, message: d.error_message ?? '' } : null,
+  createdAt: d.created_at,
+  updatedAt: d.updated_at,
+});
 
 export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (app, { db, queues }) => {
   await app.register(multipart, {
@@ -77,7 +68,11 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (app, { db, 
         bytes = await file.toBuffer();
       } catch (err) {
         if (err instanceof app.multipartErrors.RequestFileTooLargeError) {
-          throw new HttpError(413, 'file_too_large', 'The file is larger than 1 MB.');
+          throw new HttpError(
+            413,
+            'file_too_large',
+            `The file is larger than ${MAX_TEXT_BYTES / 1024 / 1024} MB.`,
+          );
         }
         throw err;
       }
@@ -95,9 +90,9 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (app, { db, 
         .executeTakeFirstOrThrow();
       try {
         await enqueue(queues.prepare, { documentId: doc.id, attempt: 1 }, jobId(doc.id, 1));
-      } catch (err) {
-        if (!(err instanceof QueueUnavailableError)) throw err;
-        // Without a job the document would sit in "queued" for good, so it is removed and the client told to retry.
+      } catch {
+        // `enqueue` only fails when the queue is unavailable. Without a job the document would sit in "queued" for
+        // good, so it is removed and the client told to retry.
         await db.deleteFrom('documents').where('id', '=', doc.id).execute();
         throw new HttpError(
           503,

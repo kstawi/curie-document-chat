@@ -3,8 +3,9 @@ import { ModelError } from '../model.js';
 import { answerPrompt, type EarlierTurn } from '../prompt.js';
 import type { AnswerJob } from '../queue.js';
 import { searchDocument } from '../search.js';
+import { sectionIndex } from '../text/chunk.js';
 import { verifyQuotes } from '../text/quotes.js';
-import type { JobDeps } from './prepare.js';
+import type { JobDeps } from './deps.js';
 
 // Earlier answered turns go to the model as data, so a follow-up like "and the hybrid one?" has its context.
 // shortcut: search still uses the follow-up as typed; step 3 rewrites it into a standalone question first.
@@ -83,7 +84,8 @@ export async function answerQuestion(
     const reply = await model.answer(answerPrompt(passages, turn.question, history));
 
     await setStage('checking');
-    const check = verifyQuotes(turn.content ?? '', reply.quotes, passages, passages);
+    const content = turn.content ?? '';
+    const check = verifyQuotes(content, reply.quotes, passages, sectionIndex(content));
     const outcome =
       reply.outcome === 'not_in_document'
         ? 'not_in_document'
@@ -98,10 +100,15 @@ export async function answerQuestion(
         stage: null,
         outcome,
         answer: outcome === 'answered' ? reply.answer : null,
-        note: outcome === 'not_in_document' ? reply.answer.slice(0, NOTE_MAX_CHARS) : null,
+        // Cut by code point, so an emoji at the boundary isn't split in half.
+        note:
+          outcome === 'not_in_document'
+            ? [...reply.answer].slice(0, NOTE_MAX_CHARS).join('')
+            : null,
         quotes: JSON.stringify(outcome === 'answered' ? check.verified : []),
         search_question: turn.question,
-        answer_path: 'thinking',
+        // Step 3 adds the second path, a retry with thinking off.
+        answer_path: 'first_call',
         chat_model: model.chatModel,
         debug: JSON.stringify({ draft: reply, rejectedQuotes: check.rejected }),
         updated_at: new Date(),

@@ -1,6 +1,6 @@
 name: curie-document-chat
 
-# Model settings, shared by the API (which checks the embedding model) and the worker (which calls the models).
+# Model settings for the worker, which calls the models.
 # Defaults reach LM Studio on the host; set the variables in `.env` for another provider (see `.env.example`).
 x-model-env: &model-env
   MODEL_BASE_URL: ${MODEL_BASE_URL:-http://host.docker.internal:1234/v1}
@@ -84,7 +84,9 @@ services:
       dockerfile: server/Dockerfile
       target: runtime
     environment:
-      <<: *model-env
+      # Only what the API needs to check a document's embedding model; it never calls the model.
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
       HOST: 0.0.0.0
       DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
       REDIS_URL: redis://redis:6379

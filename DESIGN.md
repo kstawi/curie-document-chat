@@ -35,7 +35,8 @@ longer than any statement, so a shutdown can always let the statement in flight 
 
 Postgres can drop a connection at any moment: a restart, a failover, a backend killed for memory. The `pg` library
 reports that as an `error` event, and an unhandled one ends the process, whether the connection was idle or in use.
-Every connection gets a listener, so the query in flight fails and the next one gets a fresh connection. If Postgres
+Every connection gets a listener, so the query in flight fails and the pool discards the broken connections; a
+query sent in the moment before the pool has noticed can fail too, and later ones get fresh connections. If Postgres
 is unreachable at start-up, the API logs why and exits, and Docker restarts it.
 
 The app connects as the database owner, a superuser, because `create extension vector` needs one (pgvector isn't
@@ -44,7 +45,8 @@ role without superuser rights.
 
 `chunks.embedding` is a `vector` with no fixed size, because embedding models differ (768 dimensions for the local
 model, 3,072 for Gemini's by default). A question is only ever compared with the chunks of one document, embedded
-by the model that embedded that document (from step 2 the app checks the stored model name before searching).
+by the model that embedded that document (from step 2 the app checks the stored model name, with the vector size
+when one is configured, before searching).
 Search is exact and scoped to one document: a 100-page PDF makes a few hundred chunks, few enough to compare all of them (to
 be timed with the benchmark), and pgvector can't index a column without a fixed size except with one partial index
 per model size. Each chunk also gets a generated `tsvector` from its heading path and text, with a GIN index, for
@@ -53,9 +55,8 @@ the keyword half of the search.
 **Health.** `/health` is liveness only and never touches a dependency. `/ready` checks Postgres and Redis, each
 raced against a two-second timeout so a hung dependency can't hang the probe, and answers 503 naming the one that
 failed. Redis is used without an offline queue, so commands fail fast during an outage instead of piling up in
-memory. Start-up and connection errors are logged as messages only: pg-pool attaches the whole client to
-idle-connection errors, and some `pg` errors carry row data. Request errors will follow the same rule once routes
-touch the database (step 2).
+memory. Errors are logged as messages only: pg-pool attaches the whole client to idle-connection errors, and some
+`pg` errors carry row data.
 
 ## Step 2: the thin path
 
@@ -72,24 +73,31 @@ bytes are refused; the size limit (1 MB) applies while the upload streams in. Li
 else changes, so every offset matches the stored text.
 
 **Preparation.** A background job splits the text along headings and paragraphs into chunks of about 300 tokens,
-each an exact slice of the document, embeds each with its heading path, and writes all chunks and the `ready` status
-in one transaction. Every job update is guarded by status and attempt, so a stale or repeated job can't overwrite
-newer state.
+each an exact slice of the document. A section under 400 characters is packed together with the next one, so a
+glossary with thousands of one-line entries still makes passages of a useful size (and a few hundred of them, not
+tens of thousands). Each chunk is embedded with its heading path, and all chunks and the `ready` status are written
+in one transaction, 500 rows per statement. A document that would still make more than 5,000 chunks is refused
+before anything is embedded. Every job update is guarded by status and attempt, so a stale or repeated job can't
+overwrite newer state.
 
 **Search.** One SQL statement ranks the document's chunks twice, by full-text match (the question's words ORed, the
 query built by Postgres) and by vector distance, and merges the two lists by reciprocal rank fusion. Passages fill a
 4,000-token budget best-first and go to the model in document order. A short document goes in whole.
 
-**Answering.** The prompt is the one tested before the build: passages, the last three answered turns and the
-question, each in a block marked by a random tag the document can't guess. The model must return strict JSON. The
-server then looks for each quote in the passages that were sent (at least 20 characters, matched through a
-normalised copy that only ignores quote and dash styles, spacing and emphasis marks), and decides the outcome itself:
-`answered` needs a quote found, a claim with none is `unsupported` and hidden, and `not_in_document` keeps the
-model's short note.
+**Answering.** The prompt is the one tested before the build: passages, the last three turns that got an answer
+or a not-in-document note, and the question, each in a block marked by a random tag the document can't guess. The
+model must return strict JSON. The server then looks for each quote in the passages that were sent (at least 20
+characters, matched through a normalised copy that only ignores quote and dash styles, runs of spaces and line
+breaks, Markdown emphasis and code marks, and invisible characters such as zero-width spaces), labels it with the
+section it was found in, and decides the outcome itself: `answered` needs a quote found, a claim with none is
+`unsupported` and hidden, and `not_in_document` keeps the model's short note.
 
 **When Redis is down.** Adding a job gives up after two seconds. The new row is then removed and the client gets a
 503: a document left `queued` would never be prepared, and a pending turn would lock its conversation. If the job is
 added late anyway, its handler finds no row and does nothing.
+
+**Errors.** Clients get a fixed code and a safe message; the full provider text goes to a debug column that no
+route returns.
 
 **Delivery for now.** Clients poll `GET /messages/:id`; live progress arrives in step 5.
 

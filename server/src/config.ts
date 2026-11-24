@@ -41,6 +41,11 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
+// What a document's vectors are stored under. The size is part of it: the same model asked for fewer dimensions
+// produces vectors that can't be compared with the old ones.
+export const embeddingIdentity = (c: Pick<Config, 'EMBEDDING_MODEL' | 'EMBEDDING_DIMENSIONS'>) =>
+  c.EMBEDDING_DIMENSIONS ? `${c.EMBEDDING_MODEL}@${c.EMBEDDING_DIMENSIONS}` : c.EMBEDDING_MODEL;
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const result = schema.safeParse(env);
   if (!result.success) {

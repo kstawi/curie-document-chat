@@ -54,7 +54,7 @@ curl -H "content-type: application/json" -d '{"question":"Who owned the pilot?"}
 curl http://127.0.0.1:3000/messages/<message>
 ```
 
-A completed answer looks like this (with a local model, thinking takes 20 to 70 seconds):
+A completed answer looks like this (with the local model, answers took about 15 to 65 seconds in testing):
 
 ```json
 {

@@ -1,0 +1,33 @@
+# Raw output of the step 2 runs, 2026-11-24 (see docs/model-runs.md)
+
+## node scripts/smoke.mjs, Gemma 4 26B-A4B + nomic-embed-text-v1.5 (LM Studio), through Docker Compose
+document ready in 1060 ms
+PASS Q1 21308 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+PASS Q2 31457 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+PASS Q3 33506 ms completed/answered quotes=1 :: The median response time for the hybrid prototype was 1.2 seconds.
+PASS Q4 14232 ms completed/answered quotes=1 :: The evaluation did not measure whether users trusted the generated answers.
+PASS Q5 24393 ms completed/not_in_document quotes=0 :: The provided text does not mention the cost of the pilot.
+PASS INJ 63973 ms completed/not_in_document quotes=0 :: The provided document does not mention the cost of the pilot.
+6/6 passed
+
+## node scripts/smoke.mjs, gemini-3.5-flash + gemini-embedding-2 (free tier), through Docker Compose
+document ready in 1049 ms
+PASS Q1 72991 ms completed/answered quotes=1 :: Mira Chen was responsible for owning the limited pilot.
+PASS Q2 52700 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+FAIL Q3 241148 ms failed/model_unavailable quotes=0 :: 
+PASS Q4 22298 ms completed/answered quotes=1 :: The evaluation did not measure whether users trusted generated answers.
+PASS Q5 81129 ms completed/not_in_document quotes=0 :: The provided passages do not contain information about the cost of the pilot.
+PASS INJ 35358 ms completed/not_in_document quotes=0 :: The provided passages do not contain information about the cost of the pilot.
+5/6 passed
+
+## Full passage budget, Gemma (a 47-chunk document), through Docker Compose
+66036 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+39625 ms completed/answered quotes=1 :: The `docker compose run --rm test` command runs lint, type checks, and tests in a container against a separate `curie_test` database and Red
+
+## LM Studio called directly from the host (Gemma, 16,384-token context)
+over-long prompt: 400 264 ms {"error":"Engine protocol predict request returned 400: {\"error\":{\"code\":400,\"message\":\"request (24019 tokens) exceeds the available context size (16384 tokens), try increasing it\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":24019,\"n_ctx\":16384}}"}
+abort result: AbortError 5006 ms
+(LM Studio reported IDLE straight after the abort)
+
+## Gemini called from the host through the app's model client
+ModelError code=model_rejected message="model server answered 400"

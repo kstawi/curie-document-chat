@@ -33,6 +33,7 @@ export class FakeModel {
   url = '';
   chatRequests: ChatRequest[] = [];
   embeddingStatus = 200;
+  embeddingCalls = 0;
   onChat: (req: ChatRequest) => ChatReply = () => ({ content: '{}' });
   private server: Server | undefined;
 
@@ -62,6 +63,7 @@ export class FakeModel {
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw || '{}');
     if (req.url?.endsWith('/embeddings')) {
+      this.embeddingCalls++;
       if (this.embeddingStatus !== 200)
         return { status: this.embeddingStatus, body: { error: { message: 'down' } } };
       const input: string[] = Array.isArray(body.input) ? body.input : [body.input];

@@ -2,7 +2,10 @@
 // debug column.
 export const ERROR_MESSAGES = {
   empty_document: 'The document has no text.',
+  too_many_passages:
+    'The document splits into more than 5,000 passages, which is more than this service handles.',
   document_not_ready: 'The document is not ready for questions yet.',
+  document_failed: 'Preparing the document failed, so it cannot take questions. Upload it again.',
   embedding_model_changed:
     'The document was indexed with a different embedding model than the one now configured. Re-prepare it first.',
   model_unavailable: 'The model server could not be reached or is overloaded. Try again later.',

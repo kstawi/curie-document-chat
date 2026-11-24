@@ -6,7 +6,8 @@ import { buildApp } from '../../src/app.js';
 import { loadConfig, type Config } from '../../src/config.js';
 import { createDb } from '../../src/db.js';
 import { answerQuestion } from '../../src/jobs/answer.js';
-import { prepareDocument, type JobDeps } from '../../src/jobs/prepare.js';
+import type { JobDeps } from '../../src/jobs/deps.js';
+import { prepareDocument } from '../../src/jobs/prepare.js';
 import { createModel } from '../../src/model.js';
 import { createQueues, QUEUE_NAMES, type AnswerJob, type PrepareJob } from '../../src/queue.js';
 import { FakeModel } from './fake-model.js';
@@ -47,9 +48,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     app,
     db,
     fake,
-    config,
     deps,
-    queues,
     async stop() {
       await app.close();
       await Promise.allSettled(workers.map((w) => w.close(true)));

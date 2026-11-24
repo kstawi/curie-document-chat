@@ -11,18 +11,28 @@ interface Span {
   end: number;
 }
 
+export interface Section {
+  start: number;
+  path: string;
+}
+
 // About 300 tokens at the usual four characters per token; well under the embedding model's 2,048-token limit.
 const TARGET_CHARS = 1_200;
 const MAX_CHARS = 1_600;
+// A section shorter than this is packed together with the next one, so a glossary or changelog with thousands of
+// one-line sections still makes passages of a useful size (and a manageable number of them).
+const MIN_CHARS = 400;
 
 // shortcut: a character-based estimate, not the model's tokenizer; budgets keep a margin for that.
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
 const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t#]*$/;
 
+type Block = Span & { heading?: { level: number; title: string } };
+
 // Paragraphs (runs of non-blank lines) and Markdown headings, with offsets into the original text.
-function blocks(content: string): (Span & { heading?: { level: number; title: string } })[] {
-  const out: (Span & { heading?: { level: number; title: string } })[] = [];
+function blocks(content: string): Block[] {
+  const out: Block[] = [];
   let paragraph: Span | null = null;
   let pos = 0;
   // Inside a fenced code block a line starting with "#" is code (a shell comment, say), not a heading.
@@ -48,24 +58,55 @@ function blocks(content: string): (Span & { heading?: { level: number; title: st
   return out;
 }
 
+function headingPaths(content: string): (Block & { path?: string })[] {
+  const path: string[] = [];
+  return blocks(content).map((block) => {
+    if (!block.heading) return block;
+    path.length = block.heading.level - 1;
+    path[block.heading.level - 1] = block.heading.title;
+    return { ...block, path: path.filter(Boolean).join(' > ') };
+  });
+}
+
+// Where each section starts, for labelling a quote with the section it was found in.
+export function sectionIndex(content: string): Section[] {
+  return headingPaths(content).flatMap((b) =>
+    b.path === undefined ? [] : [{ start: b.start, path: b.path }],
+  );
+}
+
+export function sectionAt(sections: Section[], offset: number): string {
+  let path = '';
+  for (const s of sections) {
+    if (s.start > offset) break;
+    path = s.path;
+  }
+  return path;
+}
+
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
+
 function lastEnd(re: RegExp, text: string): number {
   let end = -1;
   for (const m of text.matchAll(re)) end = m.index + m[0].length;
   return end;
 }
 
-// A paragraph too long for one chunk is cut after a sentence, else at a space, else hard.
+// A paragraph too long for one chunk is cut after a sentence, else at a space, else hard (never inside a
+// surrogate pair). Leading and trailing whitespace is left out of every piece, so no piece is empty.
 function splitLong(content: string, block: Span): Span[] {
   const pieces: Span[] = [];
   let start = block.start;
+  while (start < block.end && /\s/.test(content[start]!)) start++;
   while (block.end - start > MAX_CHARS) {
     const window = content.slice(start, start + TARGET_CHARS);
     let cut = lastEnd(/[.!?]["')\]]?\s+/g, window);
     if (cut <= 0) cut = lastEnd(/\s+/g, window);
-    if (cut <= 0) cut = window.length;
+    if (cut <= 0)
+      cut = window.length - (isHighSurrogate(window.charCodeAt(window.length - 1)) ? 1 : 0);
     let end = start + cut;
     while (end > start && /\s/.test(content[end - 1]!)) end--;
-    pieces.push({ start, end });
+    if (end > start) pieces.push({ start, end });
     start += cut;
     while (start < block.end && /\s/.test(content[start]!)) start++;
   }
@@ -73,11 +114,12 @@ function splitLong(content: string, block: Span): Span[] {
   return pieces;
 }
 
-// Splits on headings and paragraphs, packing paragraphs of one section up to about TARGET_CHARS. Each chunk is an
-// exact slice of the stored text, so its offsets locate it in the document.
+// Splits on headings and paragraphs, packing paragraphs up to about TARGET_CHARS. A chunk normally stays inside
+// one section; a section shorter than MIN_CHARS is packed together with the next. Each chunk is an exact slice of
+// the stored text, so its offsets locate it in the document. Its heading path is that of the section it starts in.
 export function chunkText(content: string): Chunk[] {
   const chunks: Chunk[] = [];
-  const path: string[] = [];
+  let path = '';
   let current: (Span & { headingPath: string; hasBody: boolean }) | null = null;
 
   const flush = () => {
@@ -94,12 +136,15 @@ export function chunkText(content: string): Chunk[] {
     current = null;
   };
 
-  for (const block of blocks(content)) {
-    if (block.heading) {
+  for (const block of headingPaths(content)) {
+    if (block.path !== undefined) {
+      path = block.path;
+      if (current && current.end - current.start < MIN_CHARS) {
+        current.end = block.end;
+        continue;
+      }
       flush();
-      path.length = block.heading.level - 1;
-      path[block.heading.level - 1] = block.heading.title;
-      current = { ...block, headingPath: path.filter(Boolean).join(' > '), hasBody: false };
+      current = { ...block, headingPath: path, hasBody: false };
       continue;
     }
     for (const piece of splitLong(content, block)) {
@@ -109,7 +154,7 @@ export function chunkText(content: string): Chunk[] {
         continue;
       }
       flush();
-      current = { ...piece, headingPath: path.filter(Boolean).join(' > '), hasBody: true };
+      current = { ...piece, headingPath: path, hasBody: true };
     }
   }
   flush();

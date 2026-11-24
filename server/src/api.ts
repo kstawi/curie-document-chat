@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { embeddingIdentity, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { migrateToLatest } from './migrate.js';
 import { createQueues } from './queue.js';
@@ -22,7 +22,7 @@ const app = buildApp({
   db,
   redis,
   queues,
-  embeddingModel: config.EMBEDDING_MODEL,
+  embeddingModel: embeddingIdentity(config),
   logger: { level: config.LOG_LEVEL },
 });
 // ioredis reconnects by itself; log the outage, /ready reports it.

@@ -26,13 +26,18 @@ Expected:
 
 ### Results (2026-11-24)
 
+Raw output: [runs/2026-11-24-step2.txt](runs/2026-11-24-step2.txt). These runs used the chunker as it was before
+the step 2 review, when the sample note made 5 passages; it now packs its short sections into 3. They have not been
+repeated since (the local model was unloaded), and the sample is short enough that the whole note was sent either
+way.
+
 The smoke runs went through Docker Compose, the containers reaching the model server on the host. The other checks
 below called LM Studio or Gemini directly from the host.
 
-| Run                                              | Result | Times per question | Notes                                                                                                         |
-| ------------------------------------------------ | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Gemma 4 + nomic, LM Studio                       | 6/6    | 14–64 s            | Q4 answered as "not measured" with its quote; the injection attempt answered `not_in_document`                |
-| gemini-3.5-flash + gemini-embedding-2, free tier | 5/6    | 22–81 s            | Q3 failed as `model_unavailable`: the free tier did not answer before the 240 s timeout (step 3 adds retries) |
+| Run                                              | Result | Times per question                 | Notes                                                                                                         |
+| ------------------------------------------------ | ------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Gemma 4 + nomic, LM Studio                       | 6/6    | 14–64 s                            | Q4 answered as "not measured" with its quote; the injection attempt answered `not_in_document`                |
+| gemini-3.5-flash + gemini-embedding-2, free tier | 5/6    | 22–81 s for the five that finished | Q3 failed as `model_unavailable`: the free tier did not answer before the 240 s timeout (step 3 adds retries) |
 
 Other checks with LM Studio (Gemma loaded with a 16,384-token context):
 
@@ -45,3 +50,7 @@ Other checks with LM Studio (Gemma loaded with a 16,384-token context):
 And one with Gemini: a rejected setting (`reasoning_effort: "minimal"` on gemini-3.8-flash) reaches the app as a
 400 through the `openai` package and is classified `model_rejected`, although Gemini's error body is shaped
 differently from OpenAI's.
+
+Still open from the pre-build checks: whether Gemini counts thinking tokens against `max_tokens`, and a 429 and a
+503 from Gemini passing through the `openai` package (only a 400 has been seen so far). Both belong with step 3's
+retries.

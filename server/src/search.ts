@@ -33,14 +33,14 @@ export async function searchDocument(
       select replace(plainto_tsquery('english', ${question})::text, '&', '|')::tsquery as q
     ),
     keyword as (
-      select c.id, row_number() over (order by ts_rank_cd(c.tsv, query.q) desc) as rank
+      select c.id, row_number() over (order by ts_rank_cd(c.tsv, query.q) desc, c.ordinal) as rank
       from chunks c, query
       where c.document_id = ${documentId} and c.tsv @@ query.q
       order by rank
       limit ${CANDIDATES}
     ),
     semantic as (
-      select id, row_number() over (order by embedding <=> ${toVector(questionEmbedding)}::vector) as rank
+      select id, row_number() over (order by embedding <=> ${toVector(questionEmbedding)}::vector, ordinal) as rank
       from chunks
       where document_id = ${documentId}
       order by rank
@@ -52,7 +52,7 @@ export async function searchDocument(
     from chunks c
     left join keyword k on k.id = c.id
     left join semantic s on s.id = c.id
-    where k.id is not null or s.id is not null
+    where c.document_id = ${documentId} and (k.id is not null or s.id is not null)
     order by score desc, c.ordinal
   `.execute(db);
 

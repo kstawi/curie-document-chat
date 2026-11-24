@@ -1,24 +1,20 @@
-import type { Kysely } from 'kysely';
-import type { Logger } from 'pino';
-import type { Config } from '../config.js';
-import type { Database } from '../db.js';
 import { ERROR_MESSAGES, type ErrorCode } from '../errors.js';
-import { ModelError, type Model } from '../model.js';
+import { ModelError } from '../model.js';
 import type { PrepareJob } from '../queue.js';
 import { toVector } from '../search.js';
 import { chunkText } from '../text/chunk.js';
+import type { JobDeps } from './deps.js';
 
-export interface JobDeps {
-  db: Kysely<Database>;
-  model: Model;
-  log: Logger;
-  config: Config;
-}
+// Postgres takes at most 65,535 parameters per statement; 500 rows of seven columns stay far below that.
+const INSERT_BATCH = 500;
+// With a 1 MB upload and small sections packed together, real documents stay well under this; past it something
+// is odd about the file, and it is refused rather than embedded for minutes.
+const MAX_CHUNKS = 5_000;
 
 class StaleJob extends Error {}
 
 class PrepareError extends Error {
-  constructor(readonly code: 'empty_document') {
+  constructor(readonly code: 'empty_document' | 'too_many_passages') {
     super(ERROR_MESSAGES[code]);
   }
 }
@@ -45,27 +41,33 @@ export async function prepareDocument(
   try {
     const chunks = chunkText(doc.content ?? '');
     if (chunks.length === 0) throw new PrepareError('empty_document');
-    // The heading path goes into what is embedded, so a passage carries the context of its section.
-    const vectors = await model.embed(
-      chunks.map((c) => (c.headingPath ? `${c.headingPath}\n\n${c.text}` : c.text)),
-      'document',
-    );
+    if (chunks.length > MAX_CHUNKS) throw new PrepareError('too_many_passages');
+    // The heading path goes into what is embedded, so a passage carries the context of its section. Vectors are
+    // kept only in their compact text form, to hold memory down on large documents.
+    const vectors = (
+      await model.embed(
+        chunks.map((c) => (c.headingPath ? `${c.headingPath}\n\n${c.text}` : c.text)),
+        'document',
+      )
+    ).map(toVector);
     await db.transaction().execute(async (trx) => {
       await trx.deleteFrom('chunks').where('document_id', '=', documentId).execute();
-      await trx
-        .insertInto('chunks')
-        .values(
-          chunks.map((c, i) => ({
-            document_id: documentId,
-            ordinal: c.ordinal,
-            start_offset: c.start,
-            end_offset: c.end,
-            heading_path: c.headingPath,
-            text: c.text,
-            embedding: toVector(vectors[i]!),
-          })),
-        )
-        .execute();
+      for (let i = 0; i < chunks.length; i += INSERT_BATCH) {
+        await trx
+          .insertInto('chunks')
+          .values(
+            chunks.slice(i, i + INSERT_BATCH).map((c) => ({
+              document_id: documentId,
+              ordinal: c.ordinal,
+              start_offset: c.start,
+              end_offset: c.end,
+              heading_path: c.headingPath,
+              text: c.text,
+              embedding: vectors[c.ordinal]!,
+            })),
+          )
+          .execute();
+      }
       const ready = await trx
         .updateTable('documents')
         .set({
