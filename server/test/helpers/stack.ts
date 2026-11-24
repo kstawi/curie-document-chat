@@ -1,15 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { buildApp } from '../../src/app.js';
 import { embeddingIdentity, loadConfig, type Config } from '../../src/config.js';
 import { createDb } from '../../src/db.js';
-import { answerQuestion } from '../../src/jobs/answer.js';
-import type { JobDeps } from '../../src/jobs/deps.js';
-import { prepareDocument } from '../../src/jobs/prepare.js';
+import type { JobContext, JobDeps } from '../../src/jobs/deps.js';
+import { createWorkers } from '../../src/jobs/workers.js';
 import { createModel } from '../../src/model.js';
-import { createQueues, QUEUE_NAMES, type AnswerJob, type PrepareJob } from '../../src/queue.js';
+import { createQueues, modelStatusKey } from '../../src/queue.js';
 import { FakeModel } from './fake-model.js';
 
 // The API, both job handlers and a fake model server, wired as in production but in one process. Each stack gets
@@ -22,6 +20,10 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     QUEUE_PREFIX: `test-${randomUUID()}`,
     MODEL_BASE_URL: fake.url,
     MODEL_TIMEOUT_MS: 5_000,
+    CHAT_RETRY_TIMEOUT_MS: 5_000,
+    REWRITE_TIMEOUT_MS: 5_000,
+    // Job retries a few milliseconds apart, so a test doesn't wait out the real backoff.
+    JOB_BACKOFF_MS: 50,
     CHAT_MODEL: 'fake-chat',
     EMBEDDING_MODEL: 'fake-embed',
     ...overrides,
@@ -33,25 +35,39 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     lazyConnect: true,
   });
   await redis.connect();
-  const queues = createQueues(queueRedisUrl ?? config.REDIS_URL, config.QUEUE_PREFIX);
+  const queues = createQueues(queueRedisUrl ?? config.REDIS_URL, config.QUEUE_PREFIX, config);
   // As in api.ts; for a queue pointed at a closed port, the connection errors are the point.
   for (const queue of Object.values(queues)) queue.on('error', () => {});
   const deps: JobDeps = { db, model: createModel(config), log: pino({ level: 'silent' }), config };
-  const options = { connection: { url: config.REDIS_URL }, prefix: config.QUEUE_PREFIX };
-  const workers = [
-    new Worker<PrepareJob>(QUEUE_NAMES.prepare, (job) => prepareDocument(deps, job.data), options),
-    new Worker<AnswerJob>(QUEUE_NAMES.answer, (job) => answerQuestion(deps, job.data), options),
-  ];
-  const app = buildApp({ db, redis, queues, embeddingModel: embeddingIdentity(config) });
+  const startWorkers = () => {
+    const w = createWorkers(deps, { url: config.REDIS_URL }, config.QUEUE_PREFIX);
+    w.run();
+    return w;
+  };
+  let workers = startWorkers();
+  const app = buildApp({
+    db,
+    redis,
+    queues,
+    embeddingModel: embeddingIdentity(config),
+    modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
+  });
 
   return {
     app,
     db,
+    redis,
     fake,
     deps,
+    queues,
+    // Stops the workers as a shutdown would (calls in flight cancelled, their jobs put back).
+    stopWorkers: () => workers.close(),
+    restartWorkers() {
+      workers = startWorkers();
+    },
     async stop() {
       await app.close();
-      await Promise.allSettled(workers.map((w) => w.close(true)));
+      await workers.close();
       // Bounded: queues pointed at an unreachable Redis would otherwise wait for it forever.
       await Promise.race([
         (async () => {
@@ -94,5 +110,16 @@ export function multipart(
   return {
     payload: Buffer.concat(parts),
     headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+  };
+}
+
+// For calling a job handler directly: never cancelled, and on its last attempt, so failures are recorded at once.
+export function jobContext(overrides: Partial<JobContext> = {}): JobContext {
+  return {
+    signal: new AbortController().signal,
+    shutdown: new AbortController().signal,
+    lastAttempt: true,
+    log: pino({ level: 'silent' }),
+    ...overrides,
   };
 }

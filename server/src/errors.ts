@@ -11,6 +11,9 @@ export const ERROR_MESSAGES = {
   model_unavailable: 'The model server could not be reached or is overloaded. Try again later.',
   model_rejected: 'The model server rejected the request. Check the model settings.',
   model_bad_output: 'The model did not return a usable answer.',
+  context_too_long:
+    'The question and its passages are too long for the model, even with fewer passages.',
+  max_attempts: 'This was tried several times and kept failing. Try again later.',
   internal_error: 'Something went wrong.',
 } as const;
 

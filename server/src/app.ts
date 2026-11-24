@@ -10,7 +10,7 @@ import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Database } from './db.js';
 import { HttpError } from './errors.js';
-import type { Queues } from './queue.js';
+import { withTimeout, type Queues } from './queue.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { documentRoutes } from './routes/documents.js';
 
@@ -20,15 +20,30 @@ export interface AppDeps {
   queues: Queues;
   // Questions are refused for documents embedded by another model; their vectors can't be compared.
   embeddingModel: string;
+  // Where the worker leaves its start-up model check.
+  modelStatusKey: string;
   logger?: FastifyServerOptions['logger'];
 }
 
 const CHECK_TIMEOUT_MS = 2_000;
 const checkState = z.enum(['ok', 'unavailable']);
+const modelState = z.enum(['ok', 'unavailable', 'misconfigured']);
+const modelCheck = z.object({ chat: modelState, embedding: modelState, checkedAt: z.string() });
 const readyBody = z.object({
   status: z.enum(['ready', 'not_ready']),
   checks: z.object({ database: checkState, redis: checkState }),
+  // The worker's last start-up check of the model settings (null if it hasn't run). Reported only: questions wait
+  // in the queue while the model server is away, so the API stays ready.
+  model: modelCheck.nullable(),
 });
+
+function parseModelCheck(stored: string | null) {
+  try {
+    return modelCheck.safeParse(JSON.parse(stored ?? 'null')).data ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // A dependency that hangs must not hang the readiness probe, so every check races a timeout.
 async function check(probe: () => Promise<unknown>): Promise<z.infer<typeof checkState>> {
@@ -84,14 +99,17 @@ export function buildApp(deps: AppDeps) {
     '/ready',
     { schema: { response: { 200: readyBody, 503: readyBody } } },
     async (_request, reply) => {
-      const [database, redisState] = await Promise.all([
+      const [database, redisState, stored] = await Promise.all([
         check(() => sql`select 1`.execute(db)),
         check(() => redis.ping()),
+        withTimeout(redis.get(deps.modelStatusKey)).catch(() => null),
       ]);
       const ready = database === 'ok' && redisState === 'ok';
-      return reply
-        .code(ready ? 200 : 503)
-        .send({ status: ready ? 'ready' : 'not_ready', checks: { database, redis: redisState } });
+      return reply.code(ready ? 200 : 503).send({
+        status: ready ? 'ready' : 'not_ready',
+        checks: { database, redis: redisState },
+        model: parseModelCheck(stored),
+      });
     },
   );
 

@@ -1,14 +1,13 @@
 import { ERROR_MESSAGES, type ErrorCode } from '../errors.js';
-import { ModelError } from '../model.js';
-import { answerPrompt, type EarlierTurn } from '../prompt.js';
+import { ModelError, type ModelAnswer } from '../model.js';
+import { answerPrompt, rewritePrompt, type EarlierTurn } from '../prompt.js';
 import type { AnswerJob } from '../queue.js';
 import { searchDocument } from '../search.js';
 import { sectionIndex } from '../text/chunk.js';
 import { verifyQuotes } from '../text/quotes.js';
-import type { JobDeps } from './deps.js';
+import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
 // Earlier answered turns go to the model as data, so a follow-up like "and the hybrid one?" has its context.
-// shortcut: search still uses the follow-up as typed; step 3 rewrites it into a standalone question first.
 const EARLIER_TURNS = 3;
 const NOTE_MAX_CHARS = 300;
 
@@ -18,17 +17,23 @@ class AnswerError extends Error {
   }
 }
 
+const isRetryable = (err: unknown): err is ModelError =>
+  err instanceof ModelError && (err.kind === 'unavailable' || err.kind === 'timeout');
+
+// Answers one question: rewrite a follow-up for search, search, ask the model, verify its quotes, record the result.
+// Every update is guarded by status and attempt, so a stale job (deleted row, newer attempt) changes nothing. What
+// each model failure leads to is the failure table in DESIGN.md.
 export async function answerQuestion(
-  { db, model, log, config }: JobDeps,
+  { db, model, config }: JobDeps,
   { turnId, attempt }: AnswerJob,
+  { signal, shutdown, lastAttempt, log }: JobContext,
 ) {
-  const guard = { id: turnId, attempt };
   const setStage = (stage: string) =>
     db
       .updateTable('turns')
       .set({ stage, heartbeat_at: new Date(), updated_at: new Date() })
-      .where('id', '=', guard.id)
-      .where('attempt', '=', guard.attempt)
+      .where('id', '=', turnId)
+      .where('attempt', '=', attempt)
       .where('status', '=', 'pending')
       .executeTakeFirst();
 
@@ -37,6 +42,20 @@ export async function answerQuestion(
     log.info({ turnId, attempt }, 'skipped a stale answer job');
     return;
   }
+  const stopHeartbeat = startHeartbeat(
+    () =>
+      db
+        .updateTable('turns')
+        .set({ heartbeat_at: new Date() })
+        .where('id', '=', turnId)
+        .where('attempt', '=', attempt)
+        .where('status', '=', 'pending')
+        .execute(),
+    config.HEARTBEAT_MS,
+    log,
+  );
+  // What happened on the way (rewrite, shrinking, a first call that failed), kept in the debug column either way.
+  const trail: Record<string, unknown> = {};
 
   try {
     const turn = await db
@@ -58,15 +77,6 @@ export async function answerQuestion(
     if (turn.embeddingModel !== model.embeddingModel)
       throw new AnswerError('embedding_model_changed');
 
-    const [questionVector] = await model.embed([turn.question], 'query');
-    const passages = await searchDocument(
-      db,
-      turn.documentId,
-      turn.question,
-      questionVector!,
-      config.PASSAGE_TOKEN_BUDGET,
-    );
-
     const earlier = await db
       .selectFrom('turns')
       .select(['question', 'answer', 'note'])
@@ -80,10 +90,63 @@ export async function answerQuestion(
       .reverse()
       .map((t) => ({ question: t.question, answer: t.answer ?? t.note ?? '' }));
 
+    // A follow-up like "and the hybrid one?" finds nothing on its own words, so search uses a standalone version.
+    let searchQuestion = turn.question;
+    if (history.length) {
+      try {
+        searchQuestion = await model.rewrite(rewritePrompt(turn.question, history), signal);
+      } catch (err) {
+        // A server that is down or overloaded is retried with the job; any other failure of the rewrite falls back
+        // to searching with the last two questions together.
+        if (!(err instanceof ModelError) || err.kind === 'unavailable' || err.kind === 'aborted') {
+          throw err;
+        }
+        trail.rewriteFailed = { error: err.message, detail: err.detail };
+        searchQuestion = `${history.at(-1)!.question} ${turn.question}`;
+      }
+    }
+
+    const [questionVector] = await model.embed([searchQuestion], 'query', signal);
+    const search = (budget: number) =>
+      searchDocument(db, turn.documentId, searchQuestion, questionVector!, budget);
+    let passages = await search(config.PASSAGE_TOKEN_BUDGET);
+
     await setStage('writing');
-    const reply = await model.answer(answerPrompt(passages, turn.question, history));
+    let shrunk = false;
+    const ask = async (thinking: boolean): Promise<ModelAnswer> => {
+      try {
+        return await model.answer(answerPrompt(passages, turn.question, history), {
+          thinking,
+          signal,
+        });
+      } catch (err) {
+        // Once per job: half the passages, then give up with context_too_long.
+        if (thinking && !shrunk && err instanceof ModelError && err.kind === 'context') {
+          shrunk = true;
+          trail.shrunk = true;
+          passages = await search(Math.floor(config.PASSAGE_TOKEN_BUDGET / 2));
+          return ask(thinking);
+        }
+        throw err;
+      }
+    };
+
+    let answerPath: 'thinking' | 'thinking_off_retry' = 'thinking';
+    let reply: ModelAnswer;
+    try {
+      reply = await ask(true);
+    } catch (err) {
+      // A runaway (token cap), an unusable reply or a stuck call gets one more try with thinking off.
+      if (!(err instanceof ModelError) || !(err.kind === 'bad_output' || err.kind === 'timeout')) {
+        throw err;
+      }
+      trail.firstCall = { error: err.message, detail: err.detail };
+      answerPath = 'thinking_off_retry';
+      reply = await ask(false);
+    }
 
     await setStage('checking');
+    // Checked against the passages sent with the reply kept, which are the smaller set after shrinking.
     const content = turn.content ?? '';
     const check = verifyQuotes(content, reply.quotes, passages, sectionIndex(content));
     const outcome =
@@ -106,19 +169,26 @@ export async function answerQuestion(
             ? [...reply.answer].slice(0, NOTE_MAX_CHARS).join('')
             : null,
         quotes: JSON.stringify(outcome === 'answered' ? check.verified : []),
-        search_question: turn.question,
-        // Step 3 adds the second path, a retry with thinking off.
-        answer_path: 'first_call',
+        search_question: searchQuestion,
+        answer_path: answerPath,
         chat_model: model.chatModel,
-        debug: JSON.stringify({ draft: reply, rejectedQuotes: check.rejected }),
+        debug: JSON.stringify({ ...trail, draft: reply, rejectedQuotes: check.rejected }),
         updated_at: new Date(),
       })
-      .where('id', '=', guard.id)
-      .where('attempt', '=', guard.attempt)
+      .where('id', '=', turnId)
+      .where('attempt', '=', attempt)
       .where('status', '=', 'pending')
       .execute();
-    log.info({ turnId, outcome, passages: passages.length }, 'question answered');
+    log.info({ turnId, outcome, answerPath, passages: passages.length }, 'question answered');
   } catch (err) {
+    if (err instanceof ModelError && err.kind === 'aborted' && shutdown.aborted) {
+      throw new ShutdownAbort();
+    }
+    if (isRetryable(err) && !lastAttempt) {
+      log.warn({ turnId, err: err.message }, 'answer will be retried');
+      await setStage('retrying');
+      throw err;
+    }
     const code: ErrorCode =
       err instanceof ModelError || err instanceof AnswerError ? err.code : 'internal_error';
     log.warn({ turnId, code, err: (err as Error).message }, 'answer failed');
@@ -129,14 +199,17 @@ export async function answerQuestion(
         stage: null,
         error_code: code,
         debug: JSON.stringify({
+          ...trail,
           error: (err as Error).message,
           detail: err instanceof ModelError ? err.detail : undefined,
         }),
         updated_at: new Date(),
       })
-      .where('id', '=', guard.id)
-      .where('attempt', '=', guard.attempt)
+      .where('id', '=', turnId)
+      .where('attempt', '=', attempt)
       .where('status', '=', 'pending')
       .execute();
+  } finally {
+    stopHeartbeat();
   }
 }

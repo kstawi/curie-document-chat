@@ -3,7 +3,7 @@ import { buildApp } from './app.js';
 import { embeddingIdentity, loadConfig } from './config.js';
 import { createDb } from './db.js';
 import { migrateToLatest } from './migrate.js';
-import { createQueues } from './queue.js';
+import { createQueues, modelStatusKey } from './queue.js';
 
 const config = loadConfig();
 
@@ -13,7 +13,7 @@ const db = createDb(config.DATABASE_URL, (err) =>
   app.log.warn({ err: err.message }, 'postgres dropped a connection'),
 );
 
-const queues = createQueues(config.REDIS_URL, config.QUEUE_PREFIX);
+const queues = createQueues(config.REDIS_URL, config.QUEUE_PREFIX, config);
 for (const queue of Object.values(queues)) {
   queue.on('error', (err) => app.log.warn({ queue: queue.name, err: err.message }, 'queue error'));
 }
@@ -23,6 +23,7 @@ const app = buildApp({
   redis,
   queues,
   embeddingModel: embeddingIdentity(config),
+  modelStatusKey: modelStatusKey(config.QUEUE_PREFIX),
   logger: { level: config.LOG_LEVEL },
 });
 // ioredis reconnects by itself; log the outage, /ready reports it.

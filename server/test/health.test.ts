@@ -7,8 +7,15 @@ import { createQueues } from '../src/queue.js';
 
 const config = loadConfig();
 const db = createDb(config.DATABASE_URL);
-const queues = createQueues(config.REDIS_URL, 'test-health');
-const build = (r: Redis) => buildApp({ db, redis: r, queues, embeddingModel: 'none' });
+const queues = createQueues(config.REDIS_URL, 'test-health', config);
+const build = (r: Redis) =>
+  buildApp({
+    db,
+    redis: r,
+    queues,
+    embeddingModel: 'none',
+    modelStatusKey: 'test-health:model-status',
+  });
 const redis = new Redis(config.REDIS_URL, {
   enableOfflineQueue: false,
   lazyConnect: true,
@@ -48,7 +55,11 @@ describe('health and readiness', () => {
     const app = build(redis);
     const res = await app.inject({ method: 'GET', url: '/ready' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'ready', checks: { database: 'ok', redis: 'ok' } });
+    expect(res.json()).toEqual({
+      status: 'ready',
+      checks: { database: 'ok', redis: 'ok' },
+      model: null,
+    });
   });
 
   it('is not ready, and says which dependency is missing, when Redis is down', async () => {
@@ -58,11 +69,13 @@ describe('health and readiness', () => {
     expect(res.json()).toEqual({
       status: 'not_ready',
       checks: { database: 'ok', redis: 'unavailable' },
+      model: null,
     });
   });
 
   it('gives up on a dependency that never answers after about two seconds', async () => {
-    const hungRedis = { ping: () => new Promise(() => {}) } as unknown as Redis;
+    const hang = () => new Promise(() => {});
+    const hungRedis = { ping: hang, get: hang } as unknown as Redis;
     const app = build(hungRedis);
     const started = Date.now();
     const res = await app.inject({ method: 'GET', url: '/ready' });

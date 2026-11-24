@@ -104,3 +104,44 @@ route returns.
 **Delivery for now.** Clients poll `GET /messages/:id`; live progress arrives in step 5.
 
 What step 2 leaves to later steps is listed in [docs/edge-cases.md](docs/edge-cases.md#step-2-upload-preparation-and-answers).
+
+## Step 3a: failures in the worker
+
+**Where retries happen.** The `openai` package's own retries are off, so a retry happens in one of two places:
+inside a job (a second model call) or as a new run of the job (BullMQ runs it again after 5 and then 10 seconds,
+three attempts in all). What each failure leads to:
+
+| Failure                              | Answer, thinking on                              | Retry, thinking off | Follow-up rewrite                  | Embeddings         |
+| ------------------------------------ | ------------------------------------------------ | ------------------- | ---------------------------------- | ------------------ |
+| Token cap, no JSON, wrong JSON shape | retry with thinking off                          | `model_bad_output`  | search with the last two questions | `model_bad_output` |
+| Call timeout                         | retry with thinking off                          | run the job again   | search with the last two questions | run the job again  |
+| 429, 5xx, server unreachable         | run the job again                                | run the job again   | run the job again                  | run the job again  |
+| Prompt longer than the context       | half the passages, once; then `context_too_long` | `context_too_long`  | search with the last two questions | `internal_error`   |
+| Other 4xx                            | `model_rejected`                                 | `model_rejected`    | search with the last two questions | `model_rejected`   |
+
+On the last attempt, a failure that would run the job again is recorded as `model_unavailable` instead. A whole
+answer is capped at 10 minutes and a preparation at 15, every call included.
+
+**Thinking off.** I chose one retry with thinking off after a runaway. Before the build it never ran away, but it
+called all four "not measured" questions not found, so each answer records which path produced it. The switch differs
+by model ("none" for Gemma in LM Studio, "low" for gemini-3.5-flash), so it is a setting, sent with temperature 0.
+
+**Follow-ups.** A question with earlier answered turns is first rewritten by the model, thinking off, into a
+standalone query of at most 300 characters. It is only ever used to search; the answer call still gets the question
+as asked, with the earlier turns. If the rewrite fails for any reason other than an outage, search uses the previous
+question and the new one together.
+
+**Shutdown.** On SIGTERM the worker stops taking jobs, cancels the model call in flight and puts the job back in the
+queue without spending an attempt (BullMQ's delay pattern), so the next start runs it from the beginning.
+
+**The sweeper.** Every minute the worker looks for unfinished rows untouched for two minutes (a running job touches
+its row every 15 seconds) and asks Redis about their job. A job still waiting is left alone: with one model and
+minute-long answers, a long wait is normal. A row with no live job is queued again under a new attempt, at most
+twice, then failed with `max_attempts`. If the new job can't be added the row is put back, and a sweep stops at the
+first Redis error, so an outage never uses up requeues. Requeues are counted apart from attempts, so a user's retry
+(step 3b) always gets a fresh start.
+
+**Start-up check.** The worker sends one tiny request to each model when it starts and leaves the result for
+`/ready`, which reports it but stays ready: questions wait in the queue while the model server is away. It is a
+setting, on by default. I turned it off on the machine this was built on, where LM Studio loads a model whenever one
+is asked for, so every worker restart would have loaded the chat model.

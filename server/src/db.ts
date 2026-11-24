@@ -16,6 +16,7 @@ export interface DocumentsTable {
   error_code: string | null;
   error_message: string | null;
   attempt: Generated<number>;
+  requeues: Generated<number>;
   heartbeat_at: Date | null;
   embedding_model: string | null;
   created_at: Generated<Date>;
@@ -66,6 +67,7 @@ export interface TurnsTable {
   // Never returned by the API: the model's draft, unverified quotes, raw provider errors.
   debug: ColumnType<unknown, string | null | undefined, string | null>;
   attempt: Generated<number>;
+  requeues: Generated<number>;
   heartbeat_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

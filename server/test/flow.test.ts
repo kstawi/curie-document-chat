@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { answerQuestion } from '../src/jobs/answer.js';
 import { prepareDocument } from '../src/jobs/prepare.js';
 import { createModel } from '../src/model.js';
-import { multipart, startStack } from './helpers/stack.js';
+import { jobContext, multipart, startStack } from './helpers/stack.js';
 
 const sample = readFileSync(
   new URL('../../samples/harbor-archive-pilot.md', import.meta.url),
@@ -210,7 +210,7 @@ describe('job handlers', () => {
 
   it('ignores a preparation job for a document that is gone, already ready, or on a newer attempt', async () => {
     await expect(
-      prepareDocument(stack.deps, { documentId: randomUUID(), attempt: 1 }),
+      prepareDocument(stack.deps, { documentId: randomUUID(), attempt: 1 }, jobContext()),
     ).resolves.toBeUndefined();
     const calls = stack.fake.embeddingCalls;
     for (const [values, expected] of [
@@ -221,7 +221,7 @@ describe('job handlers', () => {
       [{ attempt: 2 }, { status: 'queued', attempt: 2 }],
     ] as const) {
       const doc = await insertDoc(values);
-      await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+      await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
       const after = await stack.db
         .selectFrom('documents')
         .select(['status', 'attempt'])
@@ -242,7 +242,7 @@ describe('job handlers', () => {
 
   it('prepares a document with 1,200 chunks', async () => {
     const doc = await insertDoc({ content: sections(1_200) });
-    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
     const after = await stack.db
       .selectFrom('documents')
       .select('status')
@@ -255,7 +255,7 @@ describe('job handlers', () => {
   it('refuses a document that would make more than 5,000 chunks, before embedding anything', async () => {
     const doc = await insertDoc({ content: sections(5_001) });
     const before = stack.fake.embeddingCalls;
-    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
     const after = await stack.db
       .selectFrom('documents')
       .select(['status', 'error_code'])
@@ -277,7 +277,7 @@ describe('job handlers', () => {
       stack.fake.embeddingTransform = transform;
       try {
         const doc = await insertDoc({});
-        await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+        await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
         const after = await stack.db
           .selectFrom('documents')
           .select(['status', 'error_code'])
@@ -313,7 +313,7 @@ describe('job handlers', () => {
       stack.fake.embeddingWait = new Promise<void>((resolve) => (release = resolve));
       try {
         const doc = await insertDoc({});
-        const job = prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+        const job = prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
         await vi.waitFor(async () => {
           const row = await stack.db
             .selectFrom('documents')
@@ -344,7 +344,7 @@ describe('job handlers', () => {
       .insertInto('chunks')
       .values({ document_id: doc.id, ordinal: 0, start_offset: 0, end_offset: 5, text: 'stale' })
       .execute();
-    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
     const chunks = await stack.db
       .selectFrom('chunks')
       .select('text')
@@ -372,13 +372,13 @@ describe('job handlers', () => {
       .returning('id')
       .executeTakeFirstOrThrow();
     stack.fake.chatRequests = [];
-    await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+    await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 }, jobContext());
     const newer = await stack.db
       .insertInto('turns')
       .values({ conversation_id: conversation.id, sequence: 2, question: 'Q?', attempt: 2 })
       .returning('id')
       .executeTakeFirstOrThrow();
-    await answerQuestion(stack.deps, { turnId: newer.id, attempt: 1 });
+    await answerQuestion(stack.deps, { turnId: newer.id, attempt: 1 }, jobContext());
     expect(stack.fake.chatRequests).toHaveLength(0);
     const after = await stack.db
       .selectFrom('turns')
@@ -395,7 +395,7 @@ describe('job handlers', () => {
       .set({ status: 'processing' })
       .where('id', '=', doc.id)
       .execute();
-    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+    await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 }, jobContext());
     // A newer attempt, or the same attempt marked failed (as a sweeper would).
     for (const change of [
       { attempt: 2, status: 'pending' as const },
@@ -422,7 +422,7 @@ describe('job handlers', () => {
         }),
       });
       stack.fake.chatRequests = [];
-      const job = answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+      const job = answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 }, jobContext());
       await vi.waitFor(() => expect(stack.fake.chatRequests).toHaveLength(1));
       await stack.db.updateTable('turns').set(change).where('id', '=', turn.id).execute();
       release();
@@ -452,7 +452,7 @@ describe('job handlers', () => {
         .values({ conversation_id: conversation.id, sequence: 1, question: 'Q?' })
         .returning('id')
         .executeTakeFirstOrThrow();
-      await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+      await answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 }, jobContext());
       const after = await stack.db
         .selectFrom('turns')
         .select(['status', 'error_code'])
@@ -499,7 +499,11 @@ describe('questions and answers', () => {
     stack.fake.chatRequests = [];
     await finished((await ask(conversation, 'And the hybrid one?')).json().id);
 
-    const user = stack.fake.chatRequests[0]!.messages.find((m) => m.role === 'user')!.content;
+    // The follow-up is first rewritten for search; this is the answer call.
+    const answerCall = stack.fake.chatRequests.find(
+      (r) => (r.response_format as { json_schema: { name: string } }).json_schema.name === 'answer',
+    );
+    const user = answerCall!.messages.find((m) => m.role === 'user')!.content;
     const tag = /<(data-[0-9a-f]{12}) kind="passages">/.exec(user)?.[1];
     expect(tag).toBeDefined();
     expect(user).toContain(`<${tag} kind="earlier-turns">\nQ: How fast was keyword search?`);
@@ -688,7 +692,7 @@ describe('questions and answers', () => {
 
   it('ignores a job whose row is gone', async () => {
     await expect(
-      answerQuestion(stack.deps, { turnId: randomUUID(), attempt: 1 }),
+      answerQuestion(stack.deps, { turnId: randomUUID(), attempt: 1 }, jobContext()),
     ).resolves.toBeUndefined();
   });
 });
@@ -749,7 +753,11 @@ describe('trouble while an answer is in progress', () => {
   url.searchParams.set('application_name', 'flow-trouble');
 
   beforeAll(async () => {
-    s = await startStack({ MODEL_TIMEOUT_MS: 1_000, DATABASE_URL: url.href });
+    s = await startStack({
+      MODEL_TIMEOUT_MS: 1_000,
+      CHAT_RETRY_TIMEOUT_MS: 1_000,
+      DATABASE_URL: url.href,
+    });
     const res = await s.app.inject({
       method: 'POST',
       url: '/documents',
@@ -794,11 +802,14 @@ describe('trouble while an answer is in progress', () => {
     return body;
   };
 
+  // Each of three attempts: the thinking call times out, then the thinking-off retry does too.
   it('fails the answer as model_unavailable when the model never replies', async () => {
+    s.fake.chatRequests = [];
     s.fake.onChat = () => ({ wait: new Promise(() => {}) });
     const turn = await settle(await askIn('Who owned the pilot?'));
     expect(turn).toMatchObject({ status: 'failed', error: { code: 'model_unavailable' } });
-  });
+    expect(s.fake.chatRequests).toHaveLength(6);
+  }, 20_000);
 
   it('still records the answer when Postgres drops the connections mid-answer', async () => {
     let release = () => {};

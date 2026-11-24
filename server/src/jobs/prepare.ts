@@ -3,7 +3,7 @@ import { ModelError } from '../model.js';
 import type { PrepareJob } from '../queue.js';
 import { toVector } from '../search.js';
 import { chunkText } from '../text/chunk.js';
-import type { JobDeps } from './deps.js';
+import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
 // Keeps each insert statement, and the vector text built for it, to a modest size.
 const INSERT_BATCH = 500;
@@ -24,8 +24,9 @@ class PrepareError extends Error {
 // Chunks and embeds a document, then marks it ready, all or nothing. Every update is guarded by status and attempt:
 // a stale job (deleted row, newer attempt) changes nothing, and a job run again after a crash redoes the same work.
 export async function prepareDocument(
-  { db, model, log }: JobDeps,
+  { db, model, config }: JobDeps,
   { documentId, attempt }: PrepareJob,
+  { signal, shutdown, lastAttempt, log }: JobContext,
 ) {
   const doc = await db
     .updateTable('documents')
@@ -39,6 +40,18 @@ export async function prepareDocument(
     log.info({ documentId, attempt }, 'skipped a stale preparation job');
     return;
   }
+  const stopHeartbeat = startHeartbeat(
+    () =>
+      db
+        .updateTable('documents')
+        .set({ heartbeat_at: new Date() })
+        .where('id', '=', documentId)
+        .where('attempt', '=', attempt)
+        .where('status', '=', 'processing')
+        .execute(),
+    config.HEARTBEAT_MS,
+    log,
+  );
 
   try {
     const chunks = chunkText(doc.content ?? '');
@@ -52,6 +65,7 @@ export async function prepareDocument(
           : c.text,
       ),
       'document',
+      signal,
     );
     await db.transaction().execute(async (trx) => {
       await trx.deleteFrom('chunks').where('document_id', '=', documentId).execute();
@@ -89,8 +103,27 @@ export async function prepareDocument(
     log.info({ documentId, chunks: chunks.length }, 'document ready');
   } catch (err) {
     if (err instanceof StaleJob) return;
+    if (err instanceof ModelError && err.kind === 'aborted' && shutdown.aborted) {
+      throw new ShutdownAbort();
+    }
+    // A server that is down, overloaded or stuck: BullMQ runs the job again after a backoff.
+    if (
+      err instanceof ModelError &&
+      (err.kind === 'unavailable' || err.kind === 'timeout') &&
+      !lastAttempt
+    ) {
+      log.warn({ documentId, err: err.message }, 'preparation will be retried');
+      throw err;
+    }
+    // A passage too long for the embedding model is a chunking bug, not something the model got wrong.
     const code: ErrorCode =
-      err instanceof ModelError || err instanceof PrepareError ? err.code : 'internal_error';
+      err instanceof ModelError
+        ? err.kind === 'context'
+          ? 'internal_error'
+          : err.code
+        : err instanceof PrepareError
+          ? err.code
+          : 'internal_error';
     log.warn({ documentId, code, err: (err as Error).message }, 'preparation failed');
     await db
       .updateTable('documents')
@@ -104,5 +137,7 @@ export async function prepareDocument(
       .where('attempt', '=', attempt)
       .where('status', '=', 'processing')
       .execute();
+  } finally {
+    stopHeartbeat();
   }
 }

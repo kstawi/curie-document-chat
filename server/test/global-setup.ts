@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import pg from 'pg';
 import { loadConfig } from '../src/config.js';
 import { createDb } from '../src/db.js';
@@ -22,5 +23,7 @@ export default async function setup() {
 
   const db = createDb(DATABASE_URL);
   await migrateToLatest(db);
+  // Each run starts from empty tables, so rows that earlier runs left unfinished don't build up for the sweeper.
+  await sql`truncate documents cascade`.execute(db);
   await db.destroy();
 }
