@@ -1,3 +1,5 @@
+import { forModel } from './clean.js';
+
 export interface Chunk {
   ordinal: number;
   start: number;
@@ -55,7 +57,8 @@ function blocks(content: string): Block[] {
     pos = span.end + 1;
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
     const heading = inFence ? null : parseHeading(line);
-    if (heading || line.trim() === '') {
+    // A line with nothing visible on it is blank, as it is to a reader.
+    if (heading || forModel(line).trim() === '') {
       if (paragraph) out.push(paragraph);
       paragraph = null;
       if (heading) out.push({ ...span, heading });

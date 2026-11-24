@@ -7,9 +7,12 @@ asks for the instructions actually used. The broader personal rules that also ap
 ## Way of working
 
 - One step at a time. Each step ends with a full code review by a fresh reviewer agent that hasn't seen the work
-  being done. Its findings are fixed and every check is re-run, with another review after substantial fixes (at
-  most three reviews per step). Only when the step is polished is it committed and pushed.
-- Ask the author before loading a local model, since it takes most of the machine's memory.
+  being done. Its findings are fixed and every check is re-run, with another review after substantial fixes. Only
+  when the step is polished is it committed and pushed. Up to step 4, at most three reviews per step, each waited
+  for. From step 5 on (the author's change, 2026-11-24): at most two, each running alongside the next step in its
+  own git worktree at the reviewed commit, with its own Compose project name.
+- Up to step 4, ask the author before loading a local model, since it takes most of the machine's memory. From then
+  on the author gave a standing OK, until told to stop.
 - Each step ships with its own tests and adds its own section to `DESIGN.md` while the reasons are fresh.
 - Read this file at the start of every step. The agent's session runs from a parent folder, so it may not load it
   automatically.

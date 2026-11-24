@@ -98,9 +98,22 @@ const schema = z.object({
   // POSTs. A request without an Origin header (curl, scripts) is not a browser page and is allowed. Step 8 adds the
   // web app's origin.
   ALLOWED_HOSTS: commaList('localhost,127.0.0.1').transform((hosts) =>
-    hosts.map((h) => h.replace(/^(\[[^\]]*\]|[^:]+):\d+$/, '$1')),
+    hosts.map((h) => {
+      const name = h.replace(/^(\[[^\]]*\]|[^:]+):\d+$/, '$1');
+      // A bare IPv6 address goes in brackets, as Fastify reports it.
+      return name.includes(':') && !name.startsWith('[') ? `[${name}]` : name;
+    }),
   ),
-  ALLOWED_ORIGINS: commaList(''),
+  ALLOWED_ORIGINS: commaList('').transform((origins, ctx) =>
+    origins.map((o) => {
+      // As a browser sends it: scheme, host and port, with a default port and any path dropped.
+      const origin = URL.parse(o)?.origin;
+      if (!origin || origin === 'null') {
+        ctx.addIssue({ code: 'custom', message: `ALLOWED_ORIGINS: "${o}" is not a web origin` });
+      }
+      return origin ?? o;
+    }),
+  ),
   // Requests a minute, for uploads (with document retries) and for questions (with answer retries). Keyed by client
   // address; under Compose every request comes from the same Docker address, so these act as totals.
   RATE_LIMIT_UPLOADS_PER_MINUTE: z.coerce.number().int().min(1).default(10),

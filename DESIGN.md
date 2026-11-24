@@ -73,7 +73,7 @@ bytes are refused; the size limit (1 MB) applies while the upload streams in. Li
 else changes, so every offset matches the stored text.
 
 **Preparation.** A background job splits the text along headings and paragraphs into chunks of about 300 tokens,
-each an exact slice of the document. A section under 400 characters is packed together with the next one, up to the
+each with exact offsets into the document. A section under 400 characters is packed together with the next one, up to the
 usual chunk size, so a glossary with thousands of one-line entries still makes passages of a useful size (and a few
 hundred of them, not tens of thousands). A heading line over 200 characters counts as a paragraph, which keeps the
 heading pattern fast on crafted input. Each chunk is embedded with its heading path, and all chunks and the `ready` status are written
@@ -198,8 +198,8 @@ Questions and titles lose the same characters and are composed (NFC).
 retrieval is scoped to one document in code; every block of data sits inside a tag the document can't guess; the
 reply must match a strict schema; quotes are checked against the document and the outcome decided by the server;
 the web app will show text as text. The worst case is a wrong answer about the same document, for its own reader.
-The tests plant instructions in each slot the model reads and check the structure around them; a real model's
-reaction to planted documents is still to be run.
+The tests plant instructions in each slot the model reads and check the structure around them; on Gemma, a planted
+system line, a fake closing tag and a sentence in tag characters were all ignored (`docs/model-runs.md`).
 
 **A document that failed for good.** No text, or too many passages: its retry is refused, since the same file would
 fail the same way. I chose that so the web app doesn't offer a retry that can't help.

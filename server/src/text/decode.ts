@@ -1,5 +1,5 @@
 import { HttpError } from '../errors.js';
-import { forModel } from './clean.js';
+import { forModel, oneLine } from './clean.js';
 
 const UTF8_BOM = [0xef, 0xbb, 0xbf];
 
@@ -43,10 +43,7 @@ export function decodeUpload(bytes: Uint8Array): string {
 
 // A display title only: hidden characters removed, composed (NFC), on one line, at most 200 code points.
 export function cleanTitle(raw: string | undefined, fallback: string): string {
-  const cleaned = forModel(raw ?? '')
-    .normalize('NFC')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const cleaned = oneLine(forModel(raw ?? '').normalize('NFC'));
   // Cut by code point, so an emoji at the limit stays whole.
   const title = [...cleaned].slice(0, 200).join('').trim();
   return title || fallback;

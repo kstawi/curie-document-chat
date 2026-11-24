@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.js';
 import { answerQuestion } from '../src/jobs/answer.js';
 import { prepareDocument } from '../src/jobs/prepare.js';
 import { modelStatusKey } from '../src/queue.js';
+import { forModel } from '../src/text/clean.js';
 import { jobContext, multipart, startStack } from './helpers/stack.js';
 
 // Step 4: who may call the API, what it sends back, and what reaches the logs.
@@ -26,6 +27,7 @@ const answered = () =>
     quotes: ['Mira Chen owned the limited pilot.'],
   });
 const hidden = (...codePoints: number[]) => String.fromCodePoint(...codePoints);
+const tagged = (text: string) => hidden(...[...text].map((c) => 0xe0000 + c.codePointAt(0)!));
 
 let stack: Awaited<ReturnType<typeof startStack>>;
 let documentId: string;
@@ -80,6 +82,16 @@ describe('who may call the API', () => {
       ALLOWED_HOSTS: 'Example.test:8080,[::1]:3000,localhost',
     });
     expect(settings.ALLOWED_HOSTS).toEqual(['example.test', '[::1]', 'localhost']);
+    expect(loadConfig({ ...process.env, ALLOWED_HOSTS: '::1' }).ALLOWED_HOSTS).toEqual(['[::1]']);
+    // Origins as a browser sends them, and a list with something else in it refused at start.
+    const origins = loadConfig({
+      ...process.env,
+      ALLOWED_ORIGINS: 'http://localhost:8080/,HTTP://Example.test:80',
+    });
+    expect(origins.ALLOWED_ORIGINS).toEqual(['http://localhost:8080', 'http://example.test']);
+    expect(() => loadConfig({ ...process.env, ALLOWED_ORIGINS: 'not an origin' })).toThrow(
+      /not a web origin/,
+    );
   });
 
   it('refuses a POST from a web page on another origin, but not one without an Origin', async () => {
@@ -175,6 +187,61 @@ describe('questions', () => {
 });
 
 describe('documents with hidden characters', () => {
+  it('fail as empty when the body under a heading has nothing visible in it', async () => {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: `# Title\n\n${hidden(0x200b, 0x200b)}\n` }),
+    });
+    const id = res.json().id as string;
+    await vi.waitFor(
+      async () =>
+        expect((await stack.app.inject(`/documents/${id}`)).json()).toMatchObject({
+          status: 'failed',
+          error: { code: 'empty_document' },
+        }),
+      { timeout: 10_000 },
+    );
+  });
+
+  it('skip a chunk with nothing visible left, and index the rest cleaned', async () => {
+    const content = [
+      `# Ti${hidden(0x200b)}tle`,
+      '',
+      'Visible words in a long paragraph. '.repeat(28).trim(),
+      '',
+      // One line too long for a chunk, cut in two: the second part is hidden characters only.
+      `Visible words at the start.${tagged('x'.repeat(1_500))}`,
+      '',
+      'A short visible paragraph at the end.',
+      '',
+    ].join('\n');
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content }),
+    });
+    const id = res.json().id as string;
+    await vi.waitFor(
+      async () => expect((await stack.app.inject(`/documents/${id}`)).json().status).toBe('ready'),
+      { timeout: 10_000 },
+    );
+    const chunks = await stack.db
+      .selectFrom('chunks')
+      .select(['ordinal', 'text', 'heading_path'])
+      .where('document_id', '=', id)
+      .orderBy('ordinal')
+      .execute();
+    // The hidden run made a chunk of its own, which was skipped, so the ordinals have a gap.
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.at(-1)!.ordinal).toBeGreaterThan(chunks.length - 1);
+    for (const c of chunks) {
+      expect(c.text.trim()).not.toBe('');
+      expect(forModel(c.text)).toBe(c.text);
+      expect(c.heading_path).toBe('Title');
+    }
+  });
+
   it('are refused when nothing visible is left', async () => {
     const res = await stack.app.inject({
       method: 'POST',
@@ -199,6 +266,51 @@ describe('documents with hidden characters', () => {
       select text, tsv @@ plainto_tsquery('english', 'password') as found from chunks where document_id = ${id}
     `.execute(stack.db);
     expect(rows).toEqual([{ text: '# Access\n\nThe password is kept in the vault.', found: true }]);
+  });
+});
+
+describe('model text and labels a reader sees', () => {
+  it('carry no hidden characters: the answer, and the section of a quote', async () => {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({
+        content: `# Pricing${hidden(0x202e)} and terms\n\nThe pricing section says the pilot ran for six weeks in total.\n`,
+      }),
+    });
+    const doc = res.json().id as string;
+    await vi.waitFor(
+      async () => expect((await stack.app.inject(`/documents/${doc}`)).json().status).toBe('ready'),
+      { timeout: 10_000 },
+    );
+    const c = (
+      await stack.app.inject({ method: 'POST', url: `/documents/${doc}/conversations` })
+    ).json().id as string;
+    stack.fake.reply({
+      outcome: 'answered',
+      answer: `Six${hidden(0x202e)} weeks.`,
+      quotes: ['the pilot ran for six weeks in total'],
+    });
+    const asked = await stack.app.inject({
+      method: 'POST',
+      url: `/conversations/${c}/messages`,
+      payload: { question: 'How long did the pilot run?' },
+    });
+    let turn: { status: string; answer: string; quotes: { section: string }[] } = {
+      status: 'pending',
+      answer: '',
+      quotes: [],
+    };
+    await vi.waitFor(
+      async () => {
+        turn = (await stack.app.inject(`/messages/${asked.json().id}`)).json();
+        expect(turn.status).toBe('completed');
+      },
+      { timeout: 10_000 },
+    );
+    stack.fake.script({ content: answered() });
+    expect(turn.answer).toBe('Six weeks.');
+    expect(turn.quotes[0]!.section).toBe('Pricing and terms');
   });
 });
 

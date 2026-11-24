@@ -1,4 +1,4 @@
-import { forModel, hiddenLengthAt } from './clean.js';
+import { forModel, hiddenLengthAt, WHITESPACE } from './clean.js';
 import type { Quote } from '../db.js';
 import { sectionAt, type Section } from './chunk.js';
 
@@ -13,8 +13,9 @@ export const MIN_QUOTE_CHARS = 20;
 const SINGLE_QUOTES = /[\u2018\u2019\u201A\u201B\u2032]/;
 const DOUBLE_QUOTES = /[\u201C\u201D\u201E\u201F\u2033]/;
 const DASHES = /[\u2010-\u2015\u2212]/;
-// Markdown emphasis and code marks, which a model may leave out of a quote.
-const MARKS = /[*_`]/;
+// Markdown emphasis and code marks, and the zero-width joiners, which a model may leave out of a quote. Dropping
+// the joiners here only (forModel keeps them) still agrees with forModel: they go on both sides of the match.
+const MARKS = /[*_`\u200C\u200D]/;
 
 // The model may change quote and dash styles, spacing or emphasis marks when it copies a passage. Each character
 // here maps to one character or to none, so a match in the normalised text maps straight back to the original.
@@ -27,7 +28,7 @@ export function normalise(
   const map: number[] = [];
   let afterSpace = true;
   for (let i = from; i < to; i++) {
-    // Hidden characters first: some (form feed, vertical tab) would otherwise count as whitespace.
+    // Hidden characters first: the byte-order mark (U+FEFF) would otherwise count as whitespace.
     const hidden = hiddenLengthAt(text, i);
     if (hidden) {
       i += hidden - 1;
@@ -35,7 +36,7 @@ export function normalise(
     }
     let c = text[i]!;
     if (MARKS.test(c)) continue;
-    if (/\s/.test(c)) {
+    if (WHITESPACE.test(c)) {
       if (afterSpace) continue;
       c = ' ';
       afterSpace = true;
@@ -63,7 +64,7 @@ export function mergeRanges(content: string, ranges: Range[]): Range[] {
   for (const r of sorted) {
     const last = merged.at(-1);
     // An overlapping range gives an empty slice, so it merges too.
-    if (last && content.slice(last.end, r.start).trim() === '') {
+    if (last && forModel(content.slice(last.end, r.start)).trim() === '') {
       last.end = Math.max(last.end, r.end);
     } else {
       merged.push({ ...r });
@@ -102,7 +103,8 @@ export function verifyQuotes(
       if (at < 0) continue;
       const start = range.map[at]!;
       const end = range.map[at + needle.length - 1]! + 1;
-      const section = sectionAt(sections, start);
+      // Headings come from the stored text, so the label is cleaned like the quote's text.
+      const section = forModel(sectionAt(sections, start));
       const line = content.slice(0, start).split('\n').length;
       // The text as the model read it, so no hidden character (an unclosed direction override, say) reaches a
       // reader; the offsets still cover the stored text exactly.

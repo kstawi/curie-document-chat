@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
 import { cleanTitle, looksLikeMarkdown } from '../src/text/decode.js';
+import { answerPrompt, rewritePrompt } from '../src/prompt.js';
 import { cleanQuestion, forModel } from '../src/text/clean.js';
 import { mergeRanges, normalise, verifyQuotes } from '../src/text/quotes.js';
 
@@ -257,10 +258,11 @@ describe('upload helpers', () => {
 
 describe('hidden characters', () => {
   const hiddenOnes = [
-    0x0, 0x7, 0xe, 0x1f, 0x7f, 0x85, 0x9f, 0xad, 0x200b, 0x200e, 0x200f, 0x202a, 0x202e, 0x2060,
-    0x2064, 0x2066, 0x2069, 0x3164, 0xfeff, 0xffa0, 0xe0000, 0xe0041, 0xe007f, 0xe0100, 0xe01ef,
+    0x0, 0x7, 0xe, 0x1f, 0x7f, 0x9f, 0xad, 0x34f, 0x61c, 0x115f, 0x1160, 0x17b4, 0x180b, 0x200b,
+    0x200e, 0x202a, 0x202e, 0x2060, 0x2064, 0x2065, 0x2066, 0x206a, 0x3164, 0xfeff, 0xfff0, 0xffa0,
+    0x1bca0, 0x1d173, 0xe0000, 0xe0041, 0xe007f, 0xe0080, 0xe0100, 0xe01ef, 0xe0fff,
   ].map((cp) => String.fromCodePoint(cp));
-  // Whitespace controls and the joiners are kept for the model; the matcher treats the first as whitespace.
+  // Whitespace controls, the joiners and the emoji variation selectors are kept for the model.
   const visibleOnes = [
     'a',
     'Z',
@@ -276,7 +278,7 @@ describe('hidden characters', () => {
     '😀',
     '#',
     '*',
-  ].concat([0x2019, 0x2014, 0x200c, 0x200d].map((cp) => String.fromCodePoint(cp)));
+  ].concat([0x85, 0x2019, 0x2014, 0x200c, 0x200d, 0xfe0f].map((cp) => String.fromCodePoint(cp)));
 
   it('are dropped by quote matching exactly as they are removed from text for the model', () => {
     // A fixed pseudo-random sequence, so a failure can be replayed.
@@ -302,11 +304,59 @@ describe('hidden characters', () => {
   });
 
   it('leave whitespace controls as spaces, and Persian words and joined emoji whole', () => {
-    expect(cleanQuestion('Who owned\rthe\fpilot?')).toBe('Who owned the pilot?');
+    expect(cleanQuestion(`Who\vowned\rthe\fpilot${String.fromCodePoint(0x85)}now?`)).toBe(
+      'Who owned the pilot now?',
+    );
     const persian = `می${String.fromCodePoint(0x200c)}خواهم`;
     expect(cleanQuestion(persian)).toBe(persian);
     const coder = `👩${String.fromCodePoint(0x200d)}💻 notes`;
     expect(cleanTitle(coder, 'x')).toBe(coder);
+  });
+
+  it('are left out of quote matching with the joiners, which a model may drop from a quote', () => {
+    const zwnj = String.fromCodePoint(0x200c);
+    const zwj = String.fromCodePoint(0x200d);
+    const text = `The note says می${zwnj}خواهم and the team 👩${zwj}💻 shipped the pilot.`;
+    const all = [{ start: 0, end: text.length }];
+    expect(
+      verifyQuotes(text, ['The note says میخواهم and the team'], all, []).verified,
+    ).toHaveLength(1);
+    expect(verifyQuotes(text, ['the team 👩💻 shipped the pilot'], all, []).verified).toHaveLength(
+      1,
+    );
+  });
+
+  it('treat next line (U+0085) as a space in quote matching, which plain whitespace checks miss', () => {
+    const text = `The pilot ran for six weeks${String.fromCodePoint(0x85)}and then stopped for review.`;
+    const quote = 'ran for six weeks and then stopped for review';
+    expect(verifyQuotes(text, [quote], [{ start: 0, end: text.length }], []).verified).toHaveLength(
+      1,
+    );
+  });
+
+  it('join passages separated only by hidden characters', () => {
+    const text = `First passage.${String.fromCodePoint(0x200b, 0xe0041)} Second passage.`;
+    expect(
+      mergeRanges(text, [
+        { start: 0, end: 14 },
+        { start: 18, end: text.length },
+      ]),
+    ).toEqual([{ start: 0, end: text.length }]);
+  });
+
+  it('never reach a prompt, whatever slot they come in', () => {
+    const hidden = String.fromCodePoint(0xe0049, 0x202e, 0x200b);
+    const earlier = [{ question: `Q${hidden}?`, answer: `A${hidden}.` }];
+    for (const prompt of [
+      answerPrompt(
+        [{ id: 'p', ordinal: 0, start: 0, end: 9, headingPath: '', text: `Passage${hidden}.` }],
+        `Who${hidden}?`,
+        earlier,
+      ),
+      rewritePrompt(`Who${hidden}?`, earlier),
+    ]) {
+      for (const m of prompt) expect(forModel(String(m.content))).toBe(m.content);
+    }
   });
 
   it('are removed from titles, which are composed and cut by code point', () => {

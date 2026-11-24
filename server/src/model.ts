@@ -10,15 +10,19 @@ import type {
 } from 'openai/resources/chat/completions';
 import { z } from 'zod';
 import { embeddingIdentity, type Config } from './config.js';
+import { forModel } from './text/clean.js';
 
 // Postgres can't store a NUL character or half an emoji (a lone surrogate), and model text can contain both.
 const storable = (s: string) => s.replaceAll('\u0000', '').toWellFormed();
+// Model text a reader sees: storable, and without hidden characters (a model told to print a direction override,
+// say, by visible text in the document).
+const readable = (s: string) => forModel(storable(s));
 
 export const modelAnswer = z
   .strictObject({
     outcome: z.enum(['answered', 'not_in_document']),
-    answer: z.string().max(4_000).overwrite(storable).trim(),
-    quotes: z.array(z.string().max(2_000).overwrite(storable)).max(5),
+    answer: z.string().max(4_000).overwrite(readable).trim(),
+    quotes: z.array(z.string().max(2_000).overwrite(readable)).max(5),
   })
   // An empty note on not_in_document still carries the verdict; an empty answer carries nothing.
   .refine((r) => r.outcome !== 'answered' || r.answer !== '');
@@ -27,7 +31,7 @@ export type ModelAnswer = z.infer<typeof modelAnswer>;
 // A rewritten follow-up is only ever used as a search query, so a short cap is enough.
 const REWRITE_MAX_CHARS = 300;
 const rewriteReply = z.strictObject({
-  question: z.string().max(2_000).overwrite(storable).trim().min(1),
+  question: z.string().max(2_000).overwrite(readable).trim().min(1),
 });
 
 // The answer format tested in step 0 of the build, sent as a strict JSON schema.
