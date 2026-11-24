@@ -131,7 +131,14 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     {
       schema: {
         params: idParams,
-        body: z.strictObject({ question: z.string().trim().min(1).max(2_000) }),
+        body: z.strictObject({
+          question: z
+            .string()
+            .trim()
+            .min(1)
+            .max(2_000)
+            .refine((q) => !q.includes('\u0000'), 'The question contains a NUL character.'),
+        }),
         response: { 202: turnView },
       },
     },

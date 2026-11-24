@@ -67,6 +67,12 @@ describe('searchDocument', () => {
     expect(top.map(firstWord)).toEqual(['Gamma']);
   });
 
+  it('ranks a keyword match above the nearest vector', async () => {
+    // Beta is the nearest by vector but lacks the word; Gamma, second by vector, has it.
+    const top = await searchDocument(db, documentId, 'lighthouse', [0.9, 0.1, 0], 1);
+    expect(top.map(firstWord)).toEqual(['Gamma']);
+  });
+
   it('falls back to the vector ranking for a question with only stop words', async () => {
     const top = await searchDocument(db, documentId, 'what is the', [0, 1, 0], 1);
     expect(top.map(firstWord)).toEqual(['Alpha']);

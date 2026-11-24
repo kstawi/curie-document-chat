@@ -168,6 +168,19 @@ describe('verifyQuotes', () => {
     expect(normalise(text, q.start, q.end).text).toBe(normalise(quote).text);
   });
 
+  it('ignores zero-width spaces and soft hyphens on either side', () => {
+    const text = 'The keyword\u200B search answered in 0.7 s, the hy\u00ADbrid one in 1.2 s.';
+    const quote = 'keyword search answered in 0.7 s, the hybrid one';
+    expect(verifyQuotes(text, [quote], [{ start: 0, end: text.length }], []).verified).toHaveLength(
+      1,
+    );
+    const plain = 'The keyword search answered in 0.7 s.';
+    const marked = 'keyword\u200B search answered\uFEFF in 0.7 s';
+    expect(
+      verifyQuotes(plain, [marked], [{ start: 0, end: plain.length }], []).verified,
+    ).toHaveLength(1);
+  });
+
   it('rejects text that is not in the document', () => {
     const quote = 'The pilot cost five million dollars in total.';
     const { verified, rejected } = verifyQuotes(sample, [quote], all, sections);

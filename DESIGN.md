@@ -87,7 +87,8 @@ query built by Postgres) and by vector distance, and merges the two lists by rec
 
 **Answering.** The prompt is the one tested before the build: passages, the last three turns that got an answer
 or a not-in-document note, and the question, each in a block marked by a random tag the document can't guess. The
-model must return strict JSON. The server then looks for each quote in the passages that were sent (at least 20
+model must return strict JSON, and its text is cleaned of what Postgres can't store (a NUL character, half an
+emoji) before anything is written. The server then looks for each quote in the passages that were sent (at least 20
 characters, matched through a normalised copy that only ignores quote and dash styles, runs of spaces and line
 breaks, Markdown emphasis and code marks, and invisible characters such as zero-width spaces), labels it with the
 section it was found in, and decides the outcome itself: `answered` needs a quote found, a claim with none is

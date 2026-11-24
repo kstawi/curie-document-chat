@@ -6,10 +6,13 @@ import type {
 import { z } from 'zod';
 import { embeddingIdentity, type Config } from './config.js';
 
+// Postgres can't store a NUL character or half an emoji (a lone surrogate), and model text can contain both.
+const storable = (s: string) => s.replaceAll('\u0000', '').toWellFormed();
+
 export const modelAnswer = z.strictObject({
   outcome: z.enum(['answered', 'not_in_document']),
-  answer: z.string().max(4_000),
-  quotes: z.array(z.string().max(2_000)).max(5),
+  answer: z.string().max(4_000).overwrite(storable).trim().min(1),
+  quotes: z.array(z.string().max(2_000).overwrite(storable)).max(5),
 });
 export type ModelAnswer = z.infer<typeof modelAnswer>;
 
@@ -40,12 +43,14 @@ export type ModelErrorCode = 'model_unavailable' | 'model_rejected' | 'model_bad
 // `detail` may hold provider text, which can echo the prompt; it goes to the database's debug column, never to logs
 // or clients.
 export class ModelError extends Error {
+  readonly detail?: string;
   constructor(
     readonly code: ModelErrorCode,
     message: string,
-    readonly detail?: string,
+    detail?: string,
   ) {
     super(message);
+    this.detail = detail && storable(detail);
   }
 }
 
@@ -94,7 +99,8 @@ export function createModel(config: Config) {
             ...(config.EMBEDDING_DIMENSIONS && { dimensions: config.EMBEDDING_DIMENSIONS }),
           })
           .catch(classify);
-        if (res.data.length !== input.length) {
+        // A server can answer 200 with a body of another shape.
+        if (!Array.isArray(res.data) || res.data.length !== input.length) {
           throw new ModelError('model_bad_output', 'wrong number of embeddings returned');
         }
         const sorted = [...res.data].sort((a, b) => a.index - b.index);
@@ -129,11 +135,11 @@ export function createModel(config: Config) {
       const res = await client.chat.completions
         .create(body as unknown as ChatCompletionCreateParamsNonStreaming)
         .catch(classify);
-      const choice = res.choices[0];
+      const choice = Array.isArray(res.choices) ? res.choices[0] : undefined;
       if (choice?.finish_reason === 'length') {
         throw new ModelError('model_bad_output', 'the model hit its token cap before answering');
       }
-      const content = choice?.message.content ?? '';
+      const content = choice?.message?.content ?? '';
       let parsed: unknown;
       try {
         parsed = JSON.parse(content);

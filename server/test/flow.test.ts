@@ -131,6 +131,18 @@ describe('upload and preparation', () => {
     expect(after?.n).toBe(before?.n);
   });
 
+  it('refuses an upload that is not readable multipart form data', async () => {
+    const post = (headers: Record<string, string>, payload: string | Buffer) =>
+      stack.app.inject({ method: 'POST', url: '/documents', headers, payload });
+    const json = await post({ 'content-type': 'application/json' }, '{"text":"hi"}');
+    expect([json.statusCode, json.json().error]).toEqual([415, 'unsupported_type']);
+    const noBoundary = await post({ 'content-type': 'multipart/form-data' }, 'x');
+    expect([noBoundary.statusCode, noBoundary.json().error]).toEqual([400, 'invalid_request']);
+    const { payload, headers } = multipart({ content: '# Title\n\nText.\n' });
+    const cut = await post(headers, payload.subarray(0, payload.length - 20));
+    expect([cut.statusCode, cut.json().error]).toEqual([400, 'invalid_request']);
+  });
+
   it('marks the document failed with a reason when the embedding model is down', async () => {
     stack.fake.embeddingStatus = 503;
     try {
@@ -200,12 +212,25 @@ describe('job handlers', () => {
     await expect(
       prepareDocument(stack.deps, { documentId: randomUUID(), attempt: 1 }),
     ).resolves.toBeUndefined();
-    const ready = await insertDoc({ status: 'ready', embedding_model: 'fake-embed' });
-    await prepareDocument(stack.deps, { documentId: ready.id, attempt: 1 });
-    expect(await chunkCount(ready.id)).toBe(0);
-    const newer = await insertDoc({ attempt: 2 });
-    await prepareDocument(stack.deps, { documentId: newer.id, attempt: 1 });
-    expect(await chunkCount(newer.id)).toBe(0);
+    const calls = stack.fake.embeddingCalls;
+    for (const [values, expected] of [
+      [
+        { status: 'ready', embedding_model: 'fake-embed' },
+        { status: 'ready', attempt: 1 },
+      ],
+      [{ attempt: 2 }, { status: 'queued', attempt: 2 }],
+    ] as const) {
+      const doc = await insertDoc(values);
+      await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+      const after = await stack.db
+        .selectFrom('documents')
+        .select(['status', 'attempt'])
+        .where('id', '=', doc.id)
+        .executeTakeFirstOrThrow();
+      expect(after).toEqual(expected);
+      expect(await chunkCount(doc.id)).toBe(0);
+    }
+    expect(stack.fake.embeddingCalls).toBe(calls);
   });
 
   // Sections of about 450 characters each, so every section becomes its own chunk.
@@ -215,7 +240,7 @@ describe('job handlers', () => {
       (_, i) => `## Part ${i}\n\n${'Words about this part of the report. '.repeat(12)}`,
     ).join('\n\n');
 
-  it('prepares a document with 1,200 chunks, written 500 rows per statement', async () => {
+  it('prepares a document with 1,200 chunks', async () => {
     const doc = await insertDoc({ content: sections(1_200) });
     await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
     const after = await stack.db
@@ -247,6 +272,7 @@ describe('job handlers', () => {
       (d: Items) => d.map((x) => ({ ...x, index: 0 })), // the same position twice
       (d: Items) => d.map((x, i) => (i === 0 ? { ...x, embedding: [0.5] } : x)), // sizes differ
       (d: Items) => d.map((x) => ({ ...x, embedding: ['not', 'numbers'] })),
+      () => undefined as unknown as Items, // no list at all
     ]) {
       stack.fake.embeddingTransform = transform;
       try {
@@ -277,36 +303,38 @@ describe('job handlers', () => {
     ).toHaveLength(1);
   });
 
-  it('does not mark a document ready if a newer attempt started while it was embedding', async () => {
-    let release = () => {};
-    stack.fake.embeddingWait = new Promise<void>((resolve) => (release = resolve));
-    try {
-      const doc = await insertDoc({});
-      const job = prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
-      await vi.waitFor(async () => {
-        const row = await stack.db
+  it('does not mark a document ready if it moved on while it was embedding', async () => {
+    // A newer attempt that has already claimed the row, or the same attempt marked failed (as a sweeper would).
+    for (const change of [
+      { attempt: 2, status: 'processing' as const },
+      { attempt: 1, status: 'failed' as const },
+    ]) {
+      let release = () => {};
+      stack.fake.embeddingWait = new Promise<void>((resolve) => (release = resolve));
+      try {
+        const doc = await insertDoc({});
+        const job = prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
+        await vi.waitFor(async () => {
+          const row = await stack.db
+            .selectFrom('documents')
+            .select('status')
+            .where('id', '=', doc.id)
+            .executeTakeFirstOrThrow();
+          expect(row.status).toBe('processing');
+        });
+        await stack.db.updateTable('documents').set(change).where('id', '=', doc.id).execute();
+        release();
+        await job;
+        const after = await stack.db
           .selectFrom('documents')
-          .select('status')
+          .select(['status', 'attempt'])
           .where('id', '=', doc.id)
           .executeTakeFirstOrThrow();
-        expect(row.status).toBe('processing');
-      });
-      await stack.db
-        .updateTable('documents')
-        .set({ attempt: 2, status: 'queued' })
-        .where('id', '=', doc.id)
-        .execute();
-      release();
-      await job;
-      const after = await stack.db
-        .selectFrom('documents')
-        .select(['status', 'attempt'])
-        .where('id', '=', doc.id)
-        .executeTakeFirstOrThrow();
-      expect(after).toEqual({ status: 'queued', attempt: 2 });
-      expect(await chunkCount(doc.id)).toBe(0);
-    } finally {
-      stack.fake.embeddingWait = undefined;
+        expect(after).toEqual(change);
+        expect(await chunkCount(doc.id)).toBe(0);
+      } finally {
+        stack.fake.embeddingWait = undefined;
+      }
     }
   });
 
@@ -360,7 +388,7 @@ describe('job handlers', () => {
     expect(after.status).toBe('pending');
   });
 
-  it('does not record an answer if a newer attempt started while the model was answering', async () => {
+  it('does not record an answer if the turn moved on while the model was answering', async () => {
     const doc = await insertDoc({ status: 'ready', embedding_model: 'fake-embed' });
     await stack.db
       .updateTable('documents')
@@ -368,38 +396,44 @@ describe('job handlers', () => {
       .where('id', '=', doc.id)
       .execute();
     await prepareDocument(stack.deps, { documentId: doc.id, attempt: 1 });
-    const conversation = await stack.db
-      .insertInto('conversations')
-      .values({ document_id: doc.id })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-    const turn = await stack.db
-      .insertInto('turns')
-      .values({ conversation_id: conversation.id, sequence: 1, question: 'Who owned the pilot?' })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-    let release = () => {};
-    const held = new Promise<void>((resolve) => (release = resolve));
-    stack.fake.onChat = () => ({
-      wait: held,
-      content: JSON.stringify({
-        outcome: 'answered',
-        answer: 'Mira Chen.',
-        quotes: ['Mira Chen owned the limited pilot.'],
-      }),
-    });
-    stack.fake.chatRequests = [];
-    const job = answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
-    await vi.waitFor(() => expect(stack.fake.chatRequests).toHaveLength(1));
-    await stack.db.updateTable('turns').set({ attempt: 2 }).where('id', '=', turn.id).execute();
-    release();
-    await job;
-    const after = await stack.db
-      .selectFrom('turns')
-      .select(['status', 'outcome', 'attempt'])
-      .where('id', '=', turn.id)
-      .executeTakeFirstOrThrow();
-    expect(after).toEqual({ status: 'pending', outcome: null, attempt: 2 });
+    // A newer attempt, or the same attempt marked failed (as a sweeper would).
+    for (const change of [
+      { attempt: 2, status: 'pending' as const },
+      { attempt: 1, status: 'failed' as const },
+    ]) {
+      const conversation = await stack.db
+        .insertInto('conversations')
+        .values({ document_id: doc.id })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const turn = await stack.db
+        .insertInto('turns')
+        .values({ conversation_id: conversation.id, sequence: 1, question: 'Who owned the pilot?' })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      let release = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      stack.fake.onChat = () => ({
+        wait: held,
+        content: JSON.stringify({
+          outcome: 'answered',
+          answer: 'Mira Chen.',
+          quotes: ['Mira Chen owned the limited pilot.'],
+        }),
+      });
+      stack.fake.chatRequests = [];
+      const job = answerQuestion(stack.deps, { turnId: turn.id, attempt: 1 });
+      await vi.waitFor(() => expect(stack.fake.chatRequests).toHaveLength(1));
+      await stack.db.updateTable('turns').set(change).where('id', '=', turn.id).execute();
+      release();
+      await job;
+      const after = await stack.db
+        .selectFrom('turns')
+        .select(['status', 'outcome', 'attempt'])
+        .where('id', '=', turn.id)
+        .executeTakeFirstOrThrow();
+      expect(after).toEqual({ ...change, outcome: null });
+    }
   });
 
   it('fails an answer whose document changed after the question was accepted', async () => {
@@ -502,8 +536,43 @@ describe('questions and answers', () => {
     });
   });
 
+  it('cuts a long note to 300 characters without splitting an emoji', async () => {
+    stack.fake.reply({
+      outcome: 'not_in_document',
+      answer: `${'x'.repeat(299)}😀${'y'.repeat(100)}`,
+      quotes: [],
+    });
+    const turn = await finished(
+      (await ask(await newConversation(documentId), 'What did it cost?')).json().id,
+    );
+    expect(turn.note).toBe(`${'x'.repeat(299)}😀`);
+  });
+
+  it('stores model text that holds a NUL character or half an emoji', async () => {
+    stack.fake.reply({
+      outcome: 'answered',
+      answer: 'Mira\u0000 Chen \ud83d',
+      quotes: ['Mira Chen owned the limited pilot.', 'half an emoji \ud83d at the end of this'],
+    });
+    const turn = await finished(
+      (await ask(await newConversation(documentId), 'Who owned the pilot?')).json().id,
+    );
+    expect(turn).toMatchObject({
+      status: 'completed',
+      outcome: 'answered',
+      answer: 'Mira Chen \uFFFD',
+    });
+  });
+
   it.each([
     ['hits its token cap', { finish: 'length', content: '{"outcome":' }, 'model_bad_output'],
+    ['returns non-JSON holding a NUL character', { content: 'Sure.\u0000' }, 'model_bad_output'],
+    ['answers 200 without any choices', { body: {} }, 'model_bad_output'],
+    [
+      'answers with an empty answer',
+      { content: '{"outcome":"answered","answer":" ","quotes":[]}' },
+      'model_bad_output',
+    ],
     [
       'returns something other than JSON',
       { content: 'Sure! Here is the answer.' },
@@ -577,14 +646,27 @@ describe('questions and answers', () => {
     const conversation = await newConversation(documentId);
     expect((await ask(conversation, '')).statusCode).toBe(400);
     expect((await ask(conversation, 'x'.repeat(2_001))).statusCode).toBe(400);
-    expect((await stack.app.inject('/documents/not-a-uuid')).statusCode).toBe(400);
-    expect((await stack.app.inject(`/documents/${randomUUID()}`)).statusCode).toBe(404);
-    expect((await stack.app.inject(`/documents/${randomUUID()}/conversations`)).statusCode).toBe(
-      404,
-    );
-    expect((await stack.app.inject(`/conversations/${randomUUID()}/messages`)).statusCode).toBe(
-      404,
-    );
+    expect((await ask(conversation, 'a\u0000b')).statusCode).toBe(400);
+    const routes: [method: 'GET' | 'POST', path: (id: string) => string][] = [
+      ['GET', (id) => `/documents/${id}`],
+      ['GET', (id) => `/documents/${id}/content`],
+      ['GET', (id) => `/documents/${id}/conversations`],
+      ['POST', (id) => `/documents/${id}/conversations`],
+      ['GET', (id) => `/conversations/${id}/messages`],
+      ['POST', (id) => `/conversations/${id}/messages`],
+      ['GET', (id) => `/messages/${id}`],
+    ];
+    for (const [method, path] of routes) {
+      const payload = method === 'POST' ? { question: 'Q?' } : undefined;
+      const unknown = await stack.app.inject({ method, url: path(randomUUID()), payload });
+      expect([path('id'), unknown.statusCode, unknown.json().error]).toEqual([
+        path('id'),
+        404,
+        'not_found',
+      ]);
+      const malformed = await stack.app.inject({ method, url: path('not-a-uuid'), payload });
+      expect([path('id'), malformed.statusCode]).toEqual([path('id'), 400]);
+    }
   });
 
   it('lists a conversation in order', async () => {

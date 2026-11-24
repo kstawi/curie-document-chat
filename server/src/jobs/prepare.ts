@@ -47,7 +47,9 @@ export async function prepareDocument(
     // The heading path goes into what is embedded, so a passage carries the context of its section.
     const vectors = await model.embed(
       chunks.map((c) =>
-        c.headingPath ? `${c.headingPath.slice(0, MAX_EMBEDDED_PATH_CHARS)}\n\n${c.text}` : c.text,
+        c.headingPath
+          ? `${[...c.headingPath].slice(0, MAX_EMBEDDED_PATH_CHARS).join('')}\n\n${c.text}`
+          : c.text,
       ),
       'document',
     );

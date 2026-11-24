@@ -82,7 +82,7 @@ export class FakeModel {
         index,
         embedding: fakeEmbedding(text),
       }));
-      const data = this.embeddingTransform?.(items) ?? items;
+      const data = this.embeddingTransform ? this.embeddingTransform(items) : items;
       return {
         status: 200,
         body: {
@@ -98,6 +98,7 @@ export class FakeModel {
       await r.wait;
       if (r.status && r.status !== 200)
         return { status: r.status, body: r.body ?? { error: { message: 'fail' } } };
+      if (r.body !== undefined) return { status: 200, body: r.body };
       return {
         status: 200,
         body: {

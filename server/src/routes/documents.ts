@@ -1,4 +1,4 @@
-import multipart from '@fastify/multipart';
+import multipart, { type MultipartFile } from '@fastify/multipart';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { Selectable } from 'kysely';
 import { z } from 'zod';
@@ -60,18 +60,32 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (app, { db, 
     '/documents',
     { schema: { response: { 202: documentView } } },
     async (request, reply) => {
-      const file = await request.file();
-      if (!file)
-        throw new HttpError(400, 'no_file', 'Send the document as a multipart "file" field.');
+      let file: MultipartFile;
       let bytes: Buffer;
       try {
+        const part = await request.file();
+        if (!part)
+          throw new HttpError(400, 'no_file', 'Send the document as a multipart "file" field.');
+        file = part;
         bytes = await file.toBuffer();
       } catch (err) {
+        if (err instanceof HttpError) throw err;
         if (err instanceof app.multipartErrors.RequestFileTooLargeError) {
           throw new HttpError(
             413,
             'file_too_large',
             `The file is larger than ${MAX_TEXT_BYTES / 1024 / 1024} MB.`,
+          );
+        }
+        if (err instanceof app.multipartErrors.InvalidMultipartContentTypeError) {
+          throw new HttpError(415, 'unsupported_type', 'Send the document as multipart form data.');
+        }
+        // The parser's errors for a malformed or cut-off body carry no status code; they are the client's.
+        if ((err as { statusCode?: number }).statusCode === undefined) {
+          throw new HttpError(
+            400,
+            'invalid_request',
+            'The upload is not valid multipart form data.',
           );
         }
         throw err;
