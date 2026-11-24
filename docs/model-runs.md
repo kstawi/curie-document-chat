@@ -54,7 +54,7 @@ differently from OpenAI's.
 
 Still open from the pre-build checks: whether Gemini counts thinking tokens against `max_tokens`, and a 429 and a
 503 from Gemini passing through the `openai` package (only a 400 has been seen so far). Both belong with step 3's
-retries.
+retries; step 3's run below was on Gemma only, so they are still open.
 
 ## Step 2: re-run after the review fixes (criteria written 2026-11-24, before the run)
 
@@ -75,3 +75,47 @@ Raw output: [runs/2026-11-24-step2-rerun.txt](runs/2026-11-24-step2-rerun.txt).
 - Full budget: the 26 KB document now makes 30 chunks (47 before short sections were packed). The two questions sent
   18 and 17 passages, within the 4,000-token budget by the app's estimate, and were answered with verified quotes in 33 s and
   86 s (66 s and 40 s in the first run).
+
+## Step 3: failure handling on a real model (criteria written 2026-11-24, before the run)
+
+Setup: Gemma 4 26B-A4B (thinking on, recommended sampling, 16,384-token context) and nomic-embed-text-v1.5 in LM
+Studio, the stack built from the pushed step 3 code. Settings are changed for one run at a time through the worker's
+environment and put back afterwards. Gemini is not part of this run.
+
+1. Follow-up rewrite, default settings: the six sample questions pass as in step 2, and Q3 ("And the hybrid one?") is
+   searched with a standalone question that names the hybrid prototype, recorded in `search_question`.
+2. Thinking-off retry: `CHAT_MAX_TOKENS` lowered (the value found by trying, starting at 300) until the thinking call
+   hits the cap. Answers then finish through the retry (`answer_path` = `thinking_off_retry`) with verified quotes,
+   and none fails. Known limit, counted rather than treated as a defect: Q4 ("not measured") may come back
+   `not_in_document`.
+3. A prompt too long for the context, through the app: `PASSAGE_TOKEN_BUDGET` raised to 20,000 with a document of
+   about 100 KB. LM Studio refuses the first call with a 400 that the app reads as a context error, the passages are
+   halved once (`shrunk` in the debug column) and the question is answered. If half is still too long, the answer
+   ends `context_too_long`, which is also correct.
+4. Stopping the worker during a real answer: `docker compose stop worker` while the turn is at stage `writing`. The
+   stop takes a few seconds and exits 0, the turn stays `pending`, and after `docker compose start worker` it is
+   answered.
+5. The start-up check, turned on for one start: `/ready` reports both models `ok`.
+
+### Results (2026-11-24, 20:48–21:01)
+
+Raw output: [runs/2026-11-24-step3.txt](runs/2026-11-24-step3.txt).
+
+1. Follow-up rewrite: 6/6, 18–42 s per question. Q3 ("And the hybrid one?") was searched as "What was the median
+   response time for hybrid search?", which names the hybrid search the criterion asked for (it said "the hybrid
+   prototype"), so it counts as met.
+2. Thinking-off retry: with the cap at 300 tokens, 3 of the 6 questions hit it and went through the retry; at 150,
+   all 6 did. Every answer finished, with a verified quote where one was expected. Q4 ("not measured") came back
+   `not_in_document` through the retry both times, the known limit.
+3. Too long for the context: a 20,000-token budget never reached it. The search keeps at most 20 passages from each
+   ranking, so at most 40 go out (24 here), well inside 16,384 tokens; a budget much above the default can't be
+   filled. With Gemma reloaded at a 4,608-token context, 18 passages went out and were answered; the prompt's real
+   token count wasn't read, so whether the app's estimate runs high or LM Studio trimmed the prompt is not known.
+   At 3,328 tokens (asked for 3,200), LM Studio refused the first call, the app read it as a context error, halved
+   the passages and answered with a verified quote in 20 s; the answer used 11 passages (the refused call's count
+   isn't logged; the run before, with the same document and budget, sent 18).
+4. Stopping the worker during a real answer, at stage `writing`: the stop took 0.7 s and exited 0, the turn stayed
+   `pending`, and it was answered 25 s after the restart, still on attempt 1 with no requeue.
+5. Start-up check on: `/ready` showed both models `ok`; with the setting put back, `null`.
+
+The worker's settings were put back afterwards and both models unloaded.

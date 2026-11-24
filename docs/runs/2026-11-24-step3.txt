@@ -1,0 +1,61 @@
+# Raw output of the step 3 real-model checks, 2026-11-24 (see docs/model-runs.md)
+
+## 1. Sample questions, default settings (20:48-20:51)
+document ready in 1037 ms
+PASS Q1 18322 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+PASS Q2 20338 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+PASS Q3 26429 ms completed/answered quotes=1 :: The median response time for the hybrid prototype was 1.2 seconds.
+PASS Q4 32525 ms completed/answered quotes=1 :: The evaluation did not measure whether users trusted generated answers.
+PASS Q5 22343 ms completed/not_in_document quotes=0 :: The provided document does not mention the cost of the pilot.
+PASS INJ 41690 ms completed/not_in_document quotes=0 :: The provided text does not mention the cost of the pilot.
+6/6 passed
+search_question for Q3 "And the hybrid one?": What was the median response time for hybrid search?
+
+## 2a. CHAT_MAX_TOKENS=300 (20:51-20:53)
+document ready in 1031 ms
+PASS Q1 20322 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+PASS Q2 28464 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+PASS Q3 19325 ms completed/answered quotes=1 :: The median response time for the hybrid prototype was 1.2 seconds.
+FAIL Q4 27441 ms completed/not_in_document quotes=0 :: The evaluation did not measure whether users trusted generated answers.
+PASS Q5 19291 ms completed/not_in_document quotes=0 :: The document does not mention the cost of the pilot.
+PASS INJ 27425 ms completed/not_in_document quotes=0 :: The provided document does not contain information regarding the cost of the pilot.
+5/6 passed
+answer_path: Q1 thinking, Q2 thinking_off_retry, Q3 thinking, Q4 thinking_off_retry (not_in_document), Q5 thinking, INJ thinking_off_retry; the first call's error each time: the model hit its token cap before answering
+
+## 2b. CHAT_MAX_TOKENS=150 (20:53-20:55)
+document ready in 1041 ms
+PASS Q1 18289 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+PASS Q2 19309 ms completed/answered quotes=1 :: The median response time for keyword search was 0.7 seconds.
+PASS Q3 22335 ms completed/answered quotes=1 :: The median response time for the hybrid prototype was 1.2 seconds.
+FAIL Q4 17275 ms completed/not_in_document quotes=0 :: The evaluation did not measure whether users trusted generated answers.
+PASS Q5 17291 ms completed/not_in_document quotes=0 :: The provided document does not mention the cost of the pilot.
+PASS INJ 17263 ms completed/not_in_document quotes=0 :: The provided document does not contain information regarding the cost of the pilot.
+5/6 passed
+answer_path: thinking_off_retry for all six
+
+## 3a. PASSAGE_TOKEN_BUDGET=20000, 105 KB document (120 chunks), context 16,384 (20:55-20:57)
+document ready
+70135 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+passages sent: 24; not shrunk (the search returns at most 20 candidates from each ranking)
+
+## 3b. Default budget, Gemma loaded with a 4,608-token context (20:57-20:58)
+document ready
+39617 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+passages sent: 18; not shrunk (the prompt fit)
+
+## 3c. Default budget, Gemma loaded with a 3,328-token context (asked for 3,200) (20:59)
+document ready
+20326 ms completed/answered quotes=1 :: Mira Chen owned the limited pilot.
+first call refused by LM Studio as over the context; debug.shrunk = true; passages 18 -> 11; answered with 1 verified quote
+
+## 4. Worker stopped during a real answer, context back to 16,384 (21:00)
+before stop: "status":"pending","stage":"writing"
+stop took 703 ms, exit 0
+after stop: "status":"pending","stage":"writing"
+"msg":"document ready" "msg":"question answered" "msg":"document ready" "msg":"shutting down"
+after restart (25 s): "status":"completed" "outcome":"answered" "answer":"Mira Chen owned the limited pilot."
+1|0
+
+## 5. Start-up model check on for one start, then the setting restored (21:00-21:01)
+check on: {"status":"ready","checks":{"database":"ok","redis":"ok"},"model":{"chat":"ok","embedding":"ok","checkedAt":"2026-11-24T20:00:44.363Z"}}
+restored: {"status":"ready","checks":{"database":"ok","redis":"ok"},"model":null}
