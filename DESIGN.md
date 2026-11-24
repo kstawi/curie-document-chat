@@ -56,3 +56,41 @@ failed. Redis is used without an offline queue, so commands fail fast during an 
 memory. Start-up and connection errors are logged as messages only: pg-pool attaches the whole client to
 idle-connection errors, and some `pg` errors carry row data. Request errors will follow the same rule once routes
 touch the database (step 2).
+
+## Step 2: the thin path
+
+The brief asks for a small working path first, so step 2 goes from upload to a checked answer with nothing extra:
+no retries, no streaming. It ran against both real models before being called done (results in
+[docs/model-runs.md](docs/model-runs.md)).
+
+**One row per question and answer.** The plan had separate rows for the question and the answer. I chose one `turns`
+row per exchange instead: one status, no question without its answer, and a later retry stays on the same row. A
+partial unique index allows one pending turn per conversation, so a second question gets a 409 without a race.
+
+**Upload.** The type comes from the bytes, never the file name: PDFs, UTF-16, invalid UTF-8 and anything with NUL
+bytes are refused; the size limit (1 MB) applies while the upload streams in. Line endings become LF and nothing
+else changes, so every offset matches the stored text.
+
+**Preparation.** A background job splits the text along headings and paragraphs into chunks of about 300 tokens,
+each an exact slice of the document, embeds each with its heading path, and writes all chunks and the `ready` status
+in one transaction. Every job update is guarded by status and attempt, so a stale or repeated job can't overwrite
+newer state.
+
+**Search.** One SQL statement ranks the document's chunks twice, by full-text match (the question's words ORed, the
+query built by Postgres) and by vector distance, and merges the two lists by reciprocal rank fusion. Passages fill a
+4,000-token budget best-first and go to the model in document order. A short document goes in whole.
+
+**Answering.** The prompt is the one tested before the build: passages, the last three answered turns and the
+question, each in a block marked by a random tag the document can't guess. The model must return strict JSON. The
+server then looks for each quote in the passages that were sent (at least 20 characters, matched through a
+normalised copy that only ignores quote and dash styles, spacing and emphasis marks), and decides the outcome itself:
+`answered` needs a quote found, a claim with none is `unsupported` and hidden, and `not_in_document` keeps the
+model's short note.
+
+**When Redis is down.** Adding a job gives up after two seconds. The new row is then removed and the client gets a
+503: a document left `queued` would never be prepared, and a pending turn would lock its conversation. If the job is
+added late anyway, its handler finds no row and does nothing.
+
+**Delivery for now.** Clients poll `GET /messages/:id`; live progress arrives in step 5.
+
+What step 2 leaves to later steps is listed in [docs/edge-cases.md](docs/edge-cases.md#step-2-upload-preparation-and-answers).

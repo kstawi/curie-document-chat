@@ -3,7 +3,7 @@
 Criteria are written before each run. Wording differs between runs (Gemma's recommended sampling is on), so the
 checks are on outcome labels, verified quotes and a key fact, using `scripts/smoke.mjs`.
 
-## Step 2: first end-to-end run (criteria written 2026-11-24, before the run)
+## Step 2: first full run (criteria written 2026-11-24, before the run)
 
 Setup: the API and worker running, Gemma 4 26B-A4B (thinking on, recommended sampling, 16,384-token context) and
 nomic-embed-text-v1.5 loaded in LM Studio; then the same with gemini-3.5-flash and gemini-embedding-2.
@@ -23,3 +23,24 @@ Expected:
 - A token-cap hit ends as `failed` with `model_bad_output`: correct for this step (the thinking-off fallback comes in
   step 3), so it is counted.
 - Times are recorded.
+
+### Results (2026-11-24)
+
+All through Docker Compose, the containers reaching the model server on the host.
+
+| Run                                              | Result | Times per question | Notes                                                                                                         |
+| ------------------------------------------------ | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Gemma 4 + nomic, LM Studio                       | 6/6    | 14–64 s            | Q4 answered as "not measured" with its quote; the injection attempt answered `not_in_document`                |
+| gemini-3.5-flash + gemini-embedding-2, free tier | 5/6    | 22–81 s            | Q3 failed as `model_unavailable`: the free tier did not answer before the 240 s timeout (step 3 adds retries) |
+
+Other checks with LM Studio (Gemma loaded with a 16,384-token context):
+
+- A full passage budget (a 47-chunk document, about 4,000 tokens of passages sent): two questions answered with
+  verified quotes in 66 s and 40 s.
+- A prompt over the context size: LM Studio answers 400 ("exceeds the available context size"); nothing is cut
+  silently, so step 3 can catch it and shrink the passages.
+- Cancelling a request stops generation: LM Studio went idle at once after the client aborted.
+
+And one with Gemini: a rejected setting (`reasoning_effort: "minimal"` on gemini-3.8-flash) reaches the app as a
+400 through the `openai` package and is classified `model_rejected`, although Gemini's error body is shaped
+differently from OpenAI's.

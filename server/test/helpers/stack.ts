@@ -33,6 +33,8 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
   });
   await redis.connect();
   const queues = createQueues(queueRedisUrl ?? config.REDIS_URL, config.QUEUE_PREFIX);
+  // As in api.ts; for a queue pointed at a closed port, the connection errors are the point.
+  for (const queue of Object.values(queues)) queue.on('error', () => {});
   const deps: JobDeps = { db, model: createModel(config), log: pino({ level: 'silent' }), config };
   const options = { connection: { url: config.REDIS_URL }, prefix: config.QUEUE_PREFIX };
   const workers = [
