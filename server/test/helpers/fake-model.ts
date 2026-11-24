@@ -45,8 +45,9 @@ export class FakeModel {
   // Lets a test hold an embedding reply open, or change the vectors before they are sent.
   embeddingWait: Promise<void> | undefined;
   embeddingTransform: ((data: EmbeddingItem[]) => unknown[]) | undefined;
-  // Errors for the next embedding calls, one per call, before the normal replies resume.
-  embeddingErrors: { status: number; message?: string }[] = [];
+  // Replies for the next embedding calls, one per call, before the normal replies resume: an error status with a
+  // message, or a raw body.
+  embeddingReplies: { status: number; message?: string; raw?: string }[] = [];
   onChat: (req: ChatRequest) => ChatReply = () => ({ content: '{}' });
   private server: Server | undefined;
 
@@ -85,9 +86,14 @@ export class FakeModel {
     const body = JSON.parse(raw || '{}');
     if (req.url?.endsWith('/embeddings')) {
       this.embeddingCalls++;
-      const error = this.embeddingErrors.shift();
-      if (error)
-        return { status: error.status, body: { error: { message: error.message ?? 'down' } } };
+      const scripted = this.embeddingReplies.shift();
+      if (scripted?.raw !== undefined) return { status: scripted.status, raw: scripted.raw };
+      if (scripted) {
+        return {
+          status: scripted.status,
+          body: { error: { message: scripted.message ?? 'down' } },
+        };
+      }
       if (this.embeddingStatus !== 200)
         return { status: this.embeddingStatus, body: { error: { message: 'down' } } };
       const input: string[] = Array.isArray(body.input) ? body.input : [body.input];

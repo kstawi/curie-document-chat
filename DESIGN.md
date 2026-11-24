@@ -120,7 +120,8 @@ three attempts in all). What each failure leads to:
 | Other 4xx                            | `model_rejected`                                 | `model_rejected`    | search with the last two questions | `model_rejected`   |
 
 On the last attempt, a failure that would run the job again is recorded as `model_unavailable` instead. Each run of
-an answer job is capped at 10 minutes and each run of a preparation at 15, every call in it included.
+an answer job is capped at 10 minutes and each run of a preparation at 15, every call in it included; a run
+that reaches its limit ends the job with `model_unavailable`, without another run.
 
 **Thinking off.** I chose one retry with thinking off after a runaway. Before the build it never ran away, but it
 called all four "not measured" questions not found, so each answer records which path produced it. The switch differs
@@ -137,8 +138,8 @@ queue without spending an attempt (BullMQ's delay pattern), so the next start ru
 **The sweeper.** Every minute the worker looks for unfinished rows untouched for two minutes (a running job touches
 its row every 15 seconds) and asks Redis about their job. A job still waiting is left alone: with one model and
 minute-long answers, a long wait is normal. A row with no live job is queued again under a new attempt, at most
-twice, then failed with `max_attempts`. If the new job can't be added the row is put back, and a sweep stops at the
-first Redis error, so an outage never uses up requeues. Requeues are counted apart from attempts, so a user's retry
+twice, then failed with `max_attempts`. If the new job can't be added, the requeue isn't counted and the row keeps its new attempt, so a job
+that arrives late still runs; and a sweep stops at the first Redis error, so an outage never uses up requeues. Requeues are counted apart from attempts, so a user's retry
 (step 3b) always gets a fresh start.
 
 **Start-up check.** The worker sends one tiny request to each model when it starts and leaves the result for

@@ -64,7 +64,9 @@ const rewriteFormat = {
 } as const;
 
 // Model output is checked at the edge like any other input.
-const embeddingVector = z.array(z.number().finite()).min(1);
+const embeddingItems = z.array(
+  z.object({ index: z.number().int(), embedding: z.array(z.number().finite()).min(1) }),
+);
 
 // What went wrong with a call. The jobs decide what each leads to (the failure table in DESIGN.md).
 export type ModelFailure =
@@ -182,7 +184,9 @@ export function createModel(config: Config) {
     if (choice?.finish_reason === 'length') {
       throw new ModelError('bad_output', 'the model hit its token cap before answering');
     }
-    const content = choice?.message?.content ?? '';
+    // Anything but a string (some servers send a list of parts) counts as no JSON.
+    const raw: unknown = choice?.message?.content;
+    const content = typeof raw === 'string' ? raw : '';
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
@@ -223,18 +227,18 @@ export function createModel(config: Config) {
         )
         .catch((err: unknown) => classify(err, signal));
       // A server can answer 200 with a body of another shape.
-      if (!Array.isArray(res?.data) || res.data.length !== input.length) {
-        throw new ModelError('bad_output', 'wrong number of embeddings returned');
+      const items = embeddingItems.safeParse(res?.data);
+      if (!items.success || items.data.length !== input.length) {
+        throw new ModelError('bad_output', 'the embedding model returned an unusable reply');
       }
-      const sorted = [...res.data].sort((a, b) => a.index - b.index);
+      const sorted = [...items.data].sort((a, b) => a.index - b.index);
       for (const [i, d] of sorted.entries()) {
-        const vector = embeddingVector.safeParse(d.embedding);
         // Every vector must have the configured size, or else the size of the first one.
-        const size = config.EMBEDDING_DIMENSIONS ?? (vectors[0] ?? vector.data)?.length;
-        if (d.index !== i || !vector.success || vector.data.length !== size) {
+        const size = config.EMBEDDING_DIMENSIONS ?? (vectors[0] ?? d.embedding).length;
+        if (d.index !== i || d.embedding.length !== size) {
           throw new ModelError('bad_output', 'the embedding model returned an unusable vector');
         }
-        vectors.push(vector.data);
+        vectors.push(d.embedding);
       }
     }
     return vectors;

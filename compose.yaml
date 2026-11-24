@@ -143,7 +143,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     init: true
-    # The worker waits up to 20 s for the job in hand before exiting.
+    # On a stop the worker cancels the model call in flight and puts its job back; 20 s bounds the whole shutdown.
     stop_grace_period: 30s
     user: node
     read_only: true

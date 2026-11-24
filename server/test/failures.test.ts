@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Queue } from 'bullmq';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sweep } from '../src/jobs/sweep.js';
 import { createModel } from '../src/model.js';
 import { createQueues, jobId, modelStatusKey, type Queues } from '../src/queue.js';
@@ -33,13 +34,15 @@ const passagesOf = (r: ChatRequest) => {
 let stack: Awaited<ReturnType<typeof startStack>>;
 let documentId: string;
 beforeAll(async () => {
-  // Short call timeouts, frequent heartbeats, and a budget that fits the sample's three passages but not in half.
+  // Short call timeouts, frequent heartbeats, a budget that fits the sample's three passages but not in half, and
+  // a sweeper that only counts rows untouched for 30 minutes as stale (see the sweeper tests).
   stack = await startStack({
     MODEL_TIMEOUT_MS: 1_000,
     CHAT_RETRY_TIMEOUT_MS: 1_000,
     REWRITE_TIMEOUT_MS: 1_000,
     HEARTBEAT_MS: 100,
     PASSAGE_TOKEN_BUDGET: 500,
+    SWEEP_STALE_MS: 30 * 60_000,
   });
   documentId = await upload();
 });
@@ -135,6 +138,25 @@ describe('the thinking-off retry', () => {
     expect((await turnRow(turnId)).answer_path).toBe('thinking_off_retry');
   });
 
+  it('treats a reply whose text is not a string like an unusable reply', async () => {
+    stack.fake.chatRequests = [];
+    const odd = {
+      body: {
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'stop',
+            message: { role: 'assistant', content: [{ type: 'text', text: answered() }] },
+          },
+        ],
+      },
+    };
+    stack.fake.script(odd, { content: answered() });
+    const { turnId } = await ask('Who owned the pilot?');
+    expect(await finished(turnId)).toMatchObject({ status: 'completed', outcome: 'answered' });
+    expect((await turnRow(turnId)).answer_path).toBe('thinking_off_retry');
+  });
+
   it('fails with model_bad_output when the retry is unusable too', async () => {
     stack.fake.chatRequests = [];
     stack.fake.script({ finish: 'length', content: '{' }, { content: 'still not JSON' });
@@ -189,13 +211,41 @@ describe('job retries', () => {
   });
 
   it('runs preparation again after the embedding model answers 503', async () => {
-    stack.fake.embeddingErrors = [{ status: 503 }];
+    stack.fake.embeddingReplies = [{ status: 503 }];
     await upload();
-    expect(stack.fake.embeddingErrors).toEqual([]);
+    expect(stack.fake.embeddingReplies).toEqual([]);
   });
 
+  it.each([
+    ['an empty body', () => (stack.fake.embeddingReplies = [{ status: 200, raw: '' }])],
+    [
+      // The right number of items, one of them missing.
+      'a list with a missing item',
+      () => (stack.fake.embeddingTransform = (d) => d.map((x, i) => (i === 0 ? null : x))),
+    ],
+  ])(
+    'fails preparation with model_bad_output when embeddings come back as %s',
+    async (_label, setup) => {
+      setup();
+      try {
+        const res = await stack.app.inject({
+          method: 'POST',
+          url: '/documents',
+          ...multipart({ content: sample }),
+        });
+        const id = res.json().id as string;
+        await waitForDocument(id, 'failed');
+        expect((await stack.app.inject(`/documents/${id}`)).json().error.code).toBe(
+          'model_bad_output',
+        );
+      } finally {
+        stack.fake.embeddingTransform = undefined;
+      }
+    },
+  );
+
   it('fails preparation with internal_error when a passage is too long for the embedding model', async () => {
-    stack.fake.embeddingErrors = [
+    stack.fake.embeddingReplies = [
       { status: 400, message: 'input exceeds the available context size' },
     ];
     const res = await stack.app.inject({
@@ -389,173 +439,184 @@ describe('the job time limit', () => {
 });
 
 describe('the sweeper', () => {
-  // The sweeper's own rows are made to look an hour old, so sweeps at the real time pick them up but not rows other
-  // test files left unfinished moments ago.
+  // The sweeper's own rows are made to look an hour old; the stack only counts rows untouched for 30 minutes as stale,
+  // so rows other test files left unfinished stay out of these sweeps however long the suite runs.
   const hourAgo = () => new Date(Date.now() - 3_600_000);
-  const insertDoc = (values: Record<string, unknown> = {}) =>
-    stack.db
-      .insertInto('documents')
-      .values({
-        title: 'swept',
-        format: 'markdown',
-        content: sample,
-        updated_at: hourAgo(),
-        ...values,
-      })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-  const docRow = (id: string) =>
-    stack.db
-      .selectFrom('documents')
-      .select(['status', 'attempt', 'requeues', 'error_code'])
-      .where('id', '=', id)
-      .executeTakeFirstOrThrow();
-  const insertTurn = async (values: Record<string, unknown> = {}) => {
-    const conversation = await stack.db
-      .insertInto('conversations')
-      .values({ document_id: documentId })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-    return stack.db
-      .insertInto('turns')
-      .values({
-        conversation_id: conversation.id,
-        sequence: 1,
-        question: 'Who owned the pilot?',
-        updated_at: hourAgo(),
-        ...values,
-      })
-      .returning('id')
-      .executeTakeFirstOrThrow();
-  };
 
-  it('queues again a document whose job was lost, and it gets prepared', async () => {
-    const doc = await insertDoc();
-    await sweep(stack.deps, stack.queues);
-    expect(await docRow(doc.id)).toMatchObject({ attempt: 2, requeues: 1 });
-    await waitForDocument(doc.id, 'ready');
-  });
-
-  it('queues again a question whose job was lost, and it gets answered', async () => {
-    stack.fake.script({ content: answered() });
-    const turn = await insertTurn();
-    await sweep(stack.deps, stack.queues);
-    expect(await turnRow(turn.id)).toMatchObject({ attempt: 2, requeues: 1 });
-    expect(await finished(turn.id)).toMatchObject({ status: 'completed', outcome: 'answered' });
-  });
-
-  it('leaves alone a row touched recently, or with a recent heartbeat, even with no job', async () => {
-    const fresh = await insertDoc({ updated_at: new Date() });
-    const beating = await insertDoc({ heartbeat_at: new Date() });
-    await sweep(stack.deps, stack.queues);
-    for (const doc of [fresh, beating]) {
-      expect(await docRow(doc.id)).toMatchObject({ status: 'queued', attempt: 1, requeues: 0 });
-    }
-    // Finished, so later sweeps in this file leave them alone too.
-    await stack.db
-      .updateTable('documents')
-      .set({ status: 'failed' })
-      .where('id', 'in', [fresh.id, beating.id])
-      .execute();
-  });
-
-  it('leaves a row alone while its job is still waiting', async () => {
-    stack.fake.script({ content: answered() });
-    await stack.queues.answer.pause();
-    try {
-      const turn = await insertTurn();
-      await stack.queues.answer.add(
-        'answer',
-        { turnId: turn.id, attempt: 1 },
-        { jobId: jobId(turn.id, 1) },
-      );
-      await sweep(stack.deps, stack.queues);
-      expect(await turnRow(turn.id)).toMatchObject({ attempt: 1, requeues: 0, status: 'pending' });
-    } finally {
-      await stack.queues.answer.resume();
-    }
-  });
-
-  it('counts no requeue when the new job cannot be added, and keeps the new attempt', async () => {
-    const doc = await insertDoc();
-    // A queue that finds no job for this row (so it needs one) but can't add one, as when Redis drops mid-sweep.
-    // Every other row's job looks alive, so this row is the one the sweep acts on.
-    const failing = {
-      getJob: async (id: string) =>
-        id === jobId(doc.id, 1) ? undefined : { getState: async () => 'waiting' },
-      add: async () => {
-        throw new Error('connection lost');
+  // Every test runs for both kinds of row the sweeper looks after.
+  const kinds = [
+    {
+      kind: 'document',
+      queue: 'prepare' as const,
+      open: 'queued',
+      done: 'ready',
+      async insert(values: Record<string, unknown> = {}) {
+        const row = await stack.db
+          .insertInto('documents')
+          .values({
+            title: 'swept',
+            format: 'markdown',
+            content: sample,
+            updated_at: hourAgo(),
+            ...values,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        return row.id;
       },
-    };
-    const queues = { prepare: failing, answer: failing } as unknown as Queues;
-    await expect(sweep(stack.deps, queues)).rejects.toThrow('connection lost');
-    expect(await docRow(doc.id)).toMatchObject({ status: 'queued', attempt: 2, requeues: 0 });
-    // As if the add had landed after all: the job for the new attempt runs.
-    await stack.queues.prepare.add(
-      'prepare',
-      { documentId: doc.id, attempt: 2 },
-      { jobId: jobId(doc.id, 2) },
-    );
-    await waitForDocument(doc.id, 'ready');
-  });
+      row: (id: string) =>
+        stack.db
+          .selectFrom('documents')
+          .select(['status', 'attempt', 'requeues', 'error_code'])
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow(),
+      data: (id: string, attempt: number) => ({ documentId: id, attempt }),
+      finish: (id: string) =>
+        stack.db.updateTable('documents').set({ status: 'failed' }).where('id', '=', id).execute(),
+    },
+    {
+      kind: 'question',
+      queue: 'answer' as const,
+      open: 'pending',
+      done: 'completed',
+      async insert(values: Record<string, unknown> = {}) {
+        const conversation = await stack.db
+          .insertInto('conversations')
+          .values({ document_id: documentId })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        const row = await stack.db
+          .insertInto('turns')
+          .values({
+            conversation_id: conversation.id,
+            sequence: 1,
+            question: 'Who owned the pilot?',
+            updated_at: hourAgo(),
+            ...values,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        return row.id;
+      },
+      row: (id: string) =>
+        stack.db
+          .selectFrom('turns')
+          .select(['status', 'attempt', 'requeues', 'error_code', 'stage'])
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow(),
+      data: (id: string, attempt: number) => ({ turnId: id, attempt }),
+      finish: (id: string) =>
+        stack.db.updateTable('turns').set({ status: 'failed' }).where('id', '=', id).execute(),
+    },
+  ];
 
-  it('commits the new attempt before adding the job, so a worker that takes it at once finds it', async () => {
-    const doc = await insertDoc();
-    // Waits for the job to finish before returning, so the worker always runs it before the sweep goes on.
-    const waiting = {
-      name: 'prepare',
-      getJob: (id: string) => stack.queues.prepare.getJob(id),
-      add: async (...args: Parameters<typeof stack.queues.prepare.add>) => {
-        const job = await stack.queues.prepare.add(...args);
+  describe.each(kinds)('for a $kind', (k) => {
+    const waitUntilDone = (id: string) =>
+      vi.waitFor(async () => expect((await k.row(id)).status).toBe(k.done), { timeout: 10_000 });
+    // Every other row's job looks alive, so the sweep acts only on the test's own row.
+    const onlyFor = (id: string, add: (...args: never[]) => Promise<unknown>) => {
+      const queue = {
+        name: k.queue,
+        getJob: async (jobIdToFind: string) =>
+          jobIdToFind === jobId(id, 1) ? undefined : { getState: async () => 'waiting' },
+        add,
+      };
+      return { ...stack.queues, [k.queue]: queue } as unknown as Queues;
+    };
+
+    beforeEach(() => stack.fake.script({ content: answered() }));
+
+    it('queues it again when its job was lost, and it gets done', async () => {
+      const id = await k.insert();
+      await sweep(stack.deps, stack.queues);
+      expect(await k.row(id)).toMatchObject({ attempt: 2, requeues: 1 });
+      await waitUntilDone(id);
+    });
+
+    it('leaves it alone when touched recently, or with a recent heartbeat, even with no job', async () => {
+      const fresh = await k.insert({ updated_at: new Date() });
+      const beating = await k.insert({ heartbeat_at: new Date() });
+      await sweep(stack.deps, stack.queues);
+      for (const id of [fresh, beating]) {
+        expect(await k.row(id)).toMatchObject({ status: k.open, attempt: 1, requeues: 0 });
+        await k.finish(id);
+      }
+    });
+
+    it('leaves it alone while its job is still waiting', async () => {
+      const queue = stack.queues[k.queue] as unknown as Queue;
+      const id = await k.insert();
+      await queue.pause();
+      try {
+        await queue.add(k.queue, k.data(id, 1), { jobId: jobId(id, 1) });
+        await sweep(stack.deps, stack.queues);
+        expect(await k.row(id)).toMatchObject({ status: k.open, attempt: 1, requeues: 0 });
+      } finally {
+        await queue.resume();
+      }
+      await waitUntilDone(id);
+    });
+
+    it('counts no requeue when the new job cannot be added, and keeps the new attempt', async () => {
+      const id = await k.insert();
+      // As when Redis drops mid-sweep: the row needs a job, and adding one fails.
+      const queues = onlyFor(id, async () => {
+        throw new Error('connection lost');
+      });
+      await expect(sweep(stack.deps, queues)).rejects.toThrow('connection lost');
+      expect(await k.row(id)).toMatchObject({ status: k.open, attempt: 2, requeues: 0 });
+      // As if the add had landed after all: the job for the new attempt runs.
+      const queue = stack.queues[k.queue] as unknown as Queue;
+      await queue.add(k.queue, k.data(id, 2), { jobId: jobId(id, 2) });
+      await waitUntilDone(id);
+    });
+
+    it('commits the new attempt before adding the job, so a worker that takes it at once finds it', async () => {
+      const id = await k.insert();
+      const queue = stack.queues[k.queue] as unknown as Queue;
+      // Waits for the job to finish before returning, so the worker always runs it before the sweep goes on.
+      const queues = onlyFor(id, async (...args: Parameters<Queue['add']>) => {
+        const job = await queue.add(...args);
         await vi.waitFor(async () => expect(await job.getState()).toBe('completed'), {
           timeout: 1_900,
         });
         return job;
-      },
-    };
-    await sweep(stack.deps, { prepare: waiting, answer: stack.queues.answer } as unknown as Queues);
-    expect(await docRow(doc.id)).toMatchObject({ status: 'ready', attempt: 2 });
-  });
-
-  it('fails a row with max_attempts once its requeues are used up', async () => {
-    const doc = await insertDoc({ requeues: 2 });
-    await sweep(stack.deps, stack.queues);
-    expect(await docRow(doc.id)).toMatchObject({
-      status: 'failed',
-      attempt: 1,
-      error_code: 'max_attempts',
+      });
+      await sweep(stack.deps, queues);
+      expect(await k.row(id)).toMatchObject({ status: k.done, attempt: 2 });
     });
-  });
 
-  it('fails a question with max_attempts once its requeues are used up', async () => {
-    const turn = await insertTurn({ requeues: 2 });
-    await sweep(stack.deps, stack.queues);
-    const row = await stack.db
-      .selectFrom('turns')
-      .select(['status', 'stage', 'error_code'])
-      .where('id', '=', turn.id)
-      .executeTakeFirstOrThrow();
-    expect(row).toEqual({ status: 'failed', stage: null, error_code: 'max_attempts' });
-  });
+    it('fails it with max_attempts once its requeues are used up', async () => {
+      const id = await k.insert({ requeues: 2 });
+      await sweep(stack.deps, stack.queues);
+      expect(await k.row(id)).toMatchObject({
+        status: 'failed',
+        attempt: 1,
+        error_code: 'max_attempts',
+      });
+      if (k.kind === 'question') expect(await k.row(id)).toMatchObject({ stage: null });
+    });
 
-  it('changes nothing and uses up no requeue while Redis is unreachable', async () => {
-    const doc = await insertDoc();
-    // A row at its cap would be failed by a sweep that went on past Redis errors.
-    const capped = await insertDoc({ requeues: 2 });
-    const dead = createQueues('redis://127.0.0.1:1', `test-${randomUUID()}`, stack.deps.config);
-    for (const q of Object.values(dead)) q.on('error', () => {});
-    try {
-      await expect(sweep(stack.deps, dead)).rejects.toThrow();
-      expect(await docRow(doc.id)).toMatchObject({ status: 'queued', attempt: 1, requeues: 0 });
-      expect(await docRow(capped.id)).toMatchObject({ status: 'queued', requeues: 2 });
-    } finally {
-      await Promise.race([
-        Promise.allSettled(Object.values(dead).map((q) => q.close())),
-        new Promise((resolve) => setTimeout(resolve, 2_000)),
-      ]);
-    }
-    await sweep(stack.deps, stack.queues);
-    await waitForDocument(doc.id, 'ready');
+    it('changes nothing and uses up no requeue while Redis is unreachable', async () => {
+      const id = await k.insert();
+      // A row at its cap would be failed by a sweep that went on past Redis errors.
+      const capped = await k.insert({ requeues: 2 });
+      const dead = createQueues('redis://127.0.0.1:1', `test-${randomUUID()}`, stack.deps.config);
+      for (const q of Object.values(dead)) q.on('error', () => {});
+      try {
+        await expect(sweep(stack.deps, dead)).rejects.toThrow();
+        expect(await k.row(id)).toMatchObject({ status: k.open, attempt: 1, requeues: 0 });
+        expect(await k.row(capped)).toMatchObject({ status: k.open, requeues: 2 });
+      } finally {
+        await Promise.race([
+          Promise.allSettled(Object.values(dead).map((q) => q.close())),
+          new Promise((resolve) => setTimeout(resolve, 2_000)),
+        ]);
+      }
+      await k.finish(capped);
+      await sweep(stack.deps, stack.queues);
+      await waitUntilDone(id);
+    });
   });
 });
 
@@ -564,7 +625,7 @@ describe('the start-up model check', () => {
     expect(await stack.deps.model.check()).toEqual({ chat: 'ok', embedding: 'ok' });
 
     stack.fake.script({ status: 404, body: { error: { message: 'model not found' } } });
-    stack.fake.embeddingErrors = [{ status: 400, message: 'unknown model' }];
+    stack.fake.embeddingReplies = [{ status: 400, message: 'unknown model' }];
     expect(await stack.deps.model.check()).toEqual({
       chat: 'misconfigured',
       embedding: 'misconfigured',
