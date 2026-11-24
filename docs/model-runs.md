@@ -26,7 +26,8 @@ Expected:
 
 ### Results (2026-11-24)
 
-All through Docker Compose, the containers reaching the model server on the host.
+The smoke runs went through Docker Compose, the containers reaching the model server on the host. The other checks
+below called LM Studio or Gemini directly from the host.
 
 | Run                                              | Result | Times per question | Notes                                                                                                         |
 | ------------------------------------------------ | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------- |
@@ -35,8 +36,8 @@ All through Docker Compose, the containers reaching the model server on the host
 
 Other checks with LM Studio (Gemma loaded with a 16,384-token context):
 
-- A full passage budget (a 47-chunk document, about 4,000 tokens of passages sent): two questions answered with
-  verified quotes in 66 s and 40 s.
+- A full passage budget (a 47-chunk document whose passages fill the 4,000-token budget by the app's estimate; the
+  exact number sent wasn't logged): two questions answered with verified quotes in 66 s and 40 s.
 - A prompt over the context size: LM Studio answers 400 ("exceeds the available context size"); nothing is cut
   silently, so step 3 can catch it and shrink the passages.
 - Cancelling a request stops generation: LM Studio went idle at once after the client aborted.

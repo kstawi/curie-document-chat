@@ -123,6 +123,12 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
       },
     },
     async (request) => {
+      const doc = await db
+        .selectFrom('documents')
+        .select('id')
+        .where('id', '=', request.params.id)
+        .executeTakeFirst();
+      if (!doc) throw new HttpError(404, 'not_found', 'No document with that id.');
       const rows = await db
         .selectFrom('conversations')
         .select(['id', 'document_id', 'created_at'])
@@ -198,6 +204,12 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     '/conversations/:id/messages',
     { schema: { params: idParams, response: { 200: z.object({ items: z.array(turnView) }) } } },
     async (request) => {
+      const conversation = await db
+        .selectFrom('conversations')
+        .select('id')
+        .where('id', '=', request.params.id)
+        .executeTakeFirst();
+      if (!conversation) throw new HttpError(404, 'not_found', 'No conversation with that id.');
       const rows = await db
         .selectFrom('turns')
         .select(turnColumns)

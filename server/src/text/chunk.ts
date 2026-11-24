@@ -25,10 +25,13 @@ function blocks(content: string): (Span & { heading?: { level: number; title: st
   const out: (Span & { heading?: { level: number; title: string } })[] = [];
   let paragraph: Span | null = null;
   let pos = 0;
+  // Inside a fenced code block a line starting with "#" is code (a shell comment, say), not a heading.
+  let inFence = false;
   for (const line of content.split('\n')) {
     const span = { start: pos, end: pos + line.length };
     pos = span.end + 1;
-    const heading = HEADING.exec(line);
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    const heading = inFence ? null : HEADING.exec(line);
     if (heading || line.trim() === '') {
       if (paragraph) out.push(paragraph);
       paragraph = null;

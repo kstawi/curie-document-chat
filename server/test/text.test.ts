@@ -56,6 +56,14 @@ describe('chunkText', () => {
     expect(chunks[0]!.headingPath).toBe('Paper > Empty > Sub');
   });
 
+  it('treats "#" lines inside a fenced code block as code, not headings', () => {
+    const text =
+      '# Setup\n\nRun this:\n\n```sh\n# start the stack\ndocker compose up\n```\n\nThen wait.\n';
+    const chunks = chunkText(text);
+    expect(chunks.map((c) => c.headingPath)).toEqual(['Setup']);
+    expect(chunks[0]!.text).toContain('# start the stack');
+  });
+
   it('returns nothing for blank text', () => {
     expect(chunkText('\n\n  \n')).toEqual([]);
   });

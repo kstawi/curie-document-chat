@@ -37,7 +37,8 @@ smoothly.
 
 ## Try it
 
-From the repository folder (on Windows PowerShell, write `curl.exe`):
+From the repository folder, in a POSIX shell (Git Bash, WSL, macOS or Linux; PowerShell quotes the JSON
+differently):
 
 ```sh
 # Upload the sample note. Send the title before the file.

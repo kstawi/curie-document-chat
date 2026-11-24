@@ -63,8 +63,8 @@ The brief asks for a small working path first, so step 2 goes from upload to a c
 no retries, no streaming. It ran against both real models before being called done (results in
 [docs/model-runs.md](docs/model-runs.md)).
 
-**One row per question and answer.** The plan had separate rows for the question and the answer. I chose one `turns`
-row per exchange instead: one status, no question without its answer, and a later retry stays on the same row. A
+**One row per question and answer.** The plan had separate rows for the question and the answer. The build uses
+one `turns` row per exchange instead: one status, no question without its answer, and a later retry stays on the same row. A
 partial unique index allows one pending turn per conversation, so a second question gets a 409 without a race.
 
 **Upload.** The type comes from the bytes, never the file name: PDFs, UTF-16, invalid UTF-8 and anything with NUL

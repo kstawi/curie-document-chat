@@ -291,6 +291,12 @@ describe('questions and answers', () => {
     expect((await ask(conversation, 'x'.repeat(2_001))).statusCode).toBe(400);
     expect((await stack.app.inject('/documents/not-a-uuid')).statusCode).toBe(400);
     expect((await stack.app.inject(`/documents/${randomUUID()}`)).statusCode).toBe(404);
+    expect((await stack.app.inject(`/documents/${randomUUID()}/conversations`)).statusCode).toBe(
+      404,
+    );
+    expect((await stack.app.inject(`/conversations/${randomUUID()}/messages`)).statusCode).toBe(
+      404,
+    );
   });
 
   it('lists a conversation in order', async () => {
@@ -355,5 +361,87 @@ describe('with Redis unreachable for the queue', () => {
     expect((await ask503()).statusCode).toBe(503);
     // Had the pending row stayed, this would be a 409.
     expect((await ask503()).json().error).toBe('queue_unavailable');
+  });
+});
+
+describe('trouble while an answer is in progress', () => {
+  let s: Awaited<ReturnType<typeof startStack>>;
+  let documentId: string;
+  const url = new URL(process.env.DATABASE_URL ?? '');
+  url.searchParams.set('application_name', 'flow-trouble');
+
+  beforeAll(async () => {
+    s = await startStack({ MODEL_TIMEOUT_MS: 1_000, DATABASE_URL: url.href });
+    const res = await s.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: sample }),
+    });
+    documentId = res.json().id;
+    await vi.waitFor(
+      async () =>
+        expect((await s.app.inject(`/documents/${documentId}`)).json().status).toBe('ready'),
+      { timeout: 10_000 },
+    );
+  });
+  afterAll(() => s?.stop());
+
+  const askIn = async (question: string) => {
+    const c = (
+      await s.app.inject({ method: 'POST', url: `/documents/${documentId}/conversations` })
+    ).json().id;
+    return (
+      await s.app.inject({
+        method: 'POST',
+        url: `/conversations/${c}/messages`,
+        payload: { question },
+      })
+    ).json().id as string;
+  };
+  const settle = async (id: string) => {
+    let body: { status: string; outcome: string | null; error: { code: string } | null } = {
+      status: 'pending',
+      outcome: null,
+      error: null,
+    };
+    await vi.waitFor(
+      async () => {
+        body = (await s.app.inject(`/messages/${id}`)).json();
+        expect(body.status).not.toBe('pending');
+      },
+      { timeout: 10_000 },
+    );
+    return body;
+  };
+
+  it('fails the answer as model_unavailable when the model never replies', async () => {
+    s.fake.onChat = () => ({ wait: new Promise(() => {}) });
+    const turn = await settle(await askIn('Who owned the pilot?'));
+    expect(turn).toMatchObject({ status: 'failed', error: { code: 'model_unavailable' } });
+  });
+
+  it('still records the answer when Postgres drops the connections mid-answer', async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    s.fake.onChat = () => ({
+      wait: held,
+      content: JSON.stringify({
+        outcome: 'answered',
+        answer: 'Mira Chen.',
+        quotes: ['Mira Chen owned the limited pilot.'],
+      }),
+    });
+    const id = await askIn('Who owned the pilot?');
+    await vi.waitFor(() => expect(s.fake.chatRequests.length).toBeGreaterThan(0));
+    const pg = await import('pg');
+    const admin = new pg.default.Client({ connectionString: process.env.DATABASE_URL });
+    await admin.connect();
+    const { rowCount } = await admin.query(
+      `select pg_terminate_backend(pid) from pg_stat_activity where application_name = 'flow-trouble'`,
+    );
+    await admin.end();
+    expect(rowCount).toBeGreaterThan(0);
+    release();
+    expect(await settle(id)).toMatchObject({ status: 'completed', outcome: 'answered' });
   });
 });
