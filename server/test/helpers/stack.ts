@@ -24,6 +24,9 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     REWRITE_TIMEOUT_MS: 5_000,
     // Job retries a few milliseconds apart, so a test doesn't wait out the real backoff.
     JOB_BACKOFF_MS: 50,
+    // Every test request comes from one address; the rate limits have their own tests.
+    RATE_LIMIT_UPLOADS_PER_MINUTE: 100_000,
+    RATE_LIMIT_QUESTIONS_PER_MINUTE: 100_000,
     CHAT_MODEL: 'fake-chat',
     EMBEDDING_MODEL: 'fake-embed',
     ...overrides,

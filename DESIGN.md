@@ -173,3 +173,30 @@ and the sweeper deletes them before it touches Redis.
 **Too much waiting.** While 20 uploads or 20 questions already wait (both settings, passed to the API container), new
 ones get 503 `busy` with `Retry-After: 30`. The count is approximate: two requests at the same moment can both take
 the last place. If the queue can't be counted, the request gets 503 `queue_unavailable` before anything is saved.
+
+## Step 4: input security and prompt injection
+
+**Who may call the API.** There are no accounts, so two checks keep other websites off an API on someone's machine.
+The Host check (`localhost` and `127.0.0.1` by default) stops DNS rebinding, where a page on another name resolves to
+127.0.0.1. The Origin check refuses a POST from any web page not on `ALLOWED_ORIGINS`, which starts empty; step 8 adds
+the web app. A request without an Origin is not a page in a browser, so curl and scripts still work.
+
+**Limits.** JSON bodies stop at 64 KB, uploads at 1 MB while they stream in, and the security headers are set
+directly: a JSON API needs six of them, so I chose that over a package. Uploads and questions are rate-limited (10
+and 30 a minute, retries counted with their kind) by client address. Under Compose every request reaches the API
+from one Docker address, so the limits are totals, which suits one person running it.
+
+**Hidden characters.** The stored text stays as uploaded, so offsets hold. What the model reads goes through one
+function that removes controls, bidi controls, zero-width and Unicode tag characters (which can spell a whole hidden
+sentence), and quote matching drops exactly the same set, so a quote of the visible text still verifies. A
+property test checks that over random text. Questions and titles lose the same characters and are composed (NFC).
+
+**Prompt injection.** It can't be prevented, only contained. The model has no tools and the prompt no secrets;
+retrieval is scoped to one document in code; every block of data sits inside a tag the document can't guess; the
+reply must match a strict schema; quotes are checked against the document and the outcome decided by the server;
+the web app will show text as text. The worst case is a wrong answer about the same document, for its own reader.
+The tests plant instructions in each slot the model reads and check the structure around them; a real model's
+reaction to planted documents is still to be run.
+
+**A document that failed for good.** No text, or too many passages: its retry is refused, since the same file would
+fail the same way. I chose that so the web app doesn't offer a retry that can't help.

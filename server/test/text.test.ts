@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
 import { cleanTitle, looksLikeMarkdown } from '../src/text/decode.js';
+import { forModel } from '../src/text/clean.js';
 import { mergeRanges, normalise, verifyQuotes } from '../src/text/quotes.js';
 
 const sample = readFileSync(
@@ -251,5 +252,58 @@ describe('upload helpers', () => {
   it('calls a file Markdown only when it has a Markdown heading', () => {
     expect(looksLikeMarkdown('# Title\n\nText')).toBe(true);
     expect(looksLikeMarkdown('Plain text with #hashtag')).toBe(false);
+  });
+});
+
+describe('hidden characters', () => {
+  const hiddenOnes = [
+    0x0, 0x7, 0xb, 0xc, 0xd, 0x1f, 0x7f, 0x85, 0x9f, 0xad, 0x200b, 0x200e, 0x200f, 0x202a, 0x202e,
+    0x2060, 0x2064, 0x2066, 0x2069, 0xfeff, 0xe0000, 0xe0041, 0xe007f,
+  ].map((cp) => String.fromCodePoint(cp));
+  const visibleOnes = [
+    'a',
+    'Z',
+    ' ',
+    '\n',
+    '\t',
+    '.',
+    '"',
+    String.fromCodePoint(0x2019),
+    String.fromCodePoint(0x2014),
+    'é',
+    '😀',
+    '#',
+    '*',
+  ];
+
+  it('are dropped by quote matching exactly as they are removed from text for the model', () => {
+    // A fixed pseudo-random sequence, so a failure can be replayed.
+    let seed = 7;
+    const pick = <T>(items: T[]) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
+      return items[seed % items.length]!;
+    };
+    for (let run = 0; run < 500; run++) {
+      let text = '';
+      for (let i = 0; i < 40; i++)
+        text += pick([0, 1, 2]) === 0 ? pick(hiddenOnes) : pick(visibleOnes);
+      expect(normalise(forModel(text)).text).toBe(normalise(text).text);
+    }
+  });
+
+  it('leave ordinary text, such as the sample note, exactly as it is', () => {
+    expect(forModel(sample)).toBe(sample);
+  });
+
+  it('are removed from titles, which are composed and cut by code point', () => {
+    expect(
+      cleanTitle(
+        `Re${String.fromCodePoint(0xe0041, 0x200b)}port cafe${String.fromCodePoint(0x301)}`,
+        'x',
+      ),
+    ).toBe('Report café');
+    const long = cleanTitle(`${'a'.repeat(199)}😀b`, 'x');
+    expect([...long]).toHaveLength(200);
+    expect(long.endsWith('😀')).toBe(true);
   });
 });

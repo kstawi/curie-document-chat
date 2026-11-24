@@ -1,3 +1,4 @@
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
@@ -29,6 +30,10 @@ export interface AppDeps {
     | 'MAX_WAITING_ANSWERS'
     | 'IDEMPOTENCY_KEY_TTL_MS'
     | 'IDEMPOTENCY_TAKEOVER_MS'
+    | 'ALLOWED_HOSTS'
+    | 'ALLOWED_ORIGINS'
+    | 'RATE_LIMIT_UPLOADS_PER_MINUTE'
+    | 'RATE_LIMIT_QUESTIONS_PER_MINUTE'
   >;
   logger?: FastifyServerOptions['logger'];
 }
@@ -44,6 +49,20 @@ const readyBody = z.object({
   // in the queue while the model server is away, so the API stays ready.
   model: modelCheck.nullable(),
 });
+
+// A JSON API needs few of the usual security headers: no sniffing, no framing, no referrer, nothing cached, and a
+// policy that lets a response load nothing.
+const SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'cross-origin-resource-policy': 'same-origin',
+  'cache-control': 'no-store',
+};
+
+// JSON bodies are a question at most; uploads go through the multipart parser, which has its own limits.
+const JSON_BODY_LIMIT = 64 * 1024;
 
 function parseModelCheck(stored: string | null) {
   try {
@@ -71,7 +90,7 @@ async function check(probe: () => Promise<unknown>): Promise<z.infer<typeof chec
 
 export function buildApp(deps: AppDeps) {
   const { db, redis, logger = false } = deps;
-  const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
+  const app = Fastify({ logger, bodyLimit: JSON_BODY_LIMIT }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -93,6 +112,41 @@ export function buildApp(deps: AppDeps) {
     }
     request.log.error({ err: (err as Error).message }, 'request failed');
     return reply.code(500).send({ error: 'internal_error', message: 'Something went wrong.' });
+  });
+  // Without accounts, these two checks keep other websites off a local API. The Host check stops DNS rebinding (a page
+  // on another name that resolves to 127.0.0.1); the Origin check stops a page on another site from posting to it.
+  const hosts = new Set(deps.settings.ALLOWED_HOSTS);
+  const origins = new Set(deps.settings.ALLOWED_ORIGINS);
+  app.addHook('onRequest', async (request) => {
+    if (!hosts.has((request.hostname ?? '').toLowerCase())) {
+      throw new HttpError(
+        403,
+        'host_not_allowed',
+        'This server does not answer to that host name.',
+      );
+    }
+    const origin = request.headers.origin;
+    const writes = request.method !== 'GET' && request.method !== 'HEAD';
+    if (writes && origin !== undefined && !origins.has(origin.toLowerCase())) {
+      throw new HttpError(
+        403,
+        'origin_not_allowed',
+        'Requests from that web page are not accepted.',
+      );
+    }
+  });
+  app.addHook('onSend', async (_request, reply, payload) => {
+    reply.headers(SECURITY_HEADERS);
+    return payload;
+  });
+  // Off by default; the upload and question routes set their own limits. Raised as an HttpError, so the client gets
+  // the usual body with a fixed code.
+  void app.register(rateLimit, {
+    global: false,
+    errorResponseBuilder: (_request, context) =>
+      new HttpError(429, 'rate_limited', `Too many requests. Try again in ${context.after}.`, {
+        'retry-after': String(Math.ceil(context.ttl / 1000)),
+      }),
   });
   app.setNotFoundHandler((_request, reply) =>
     reply.code(404).send({ error: 'not_found', message: 'No such route.' }),

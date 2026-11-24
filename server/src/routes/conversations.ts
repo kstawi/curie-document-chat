@@ -5,6 +5,7 @@ import type { AppDeps } from '../app.js';
 import type { TurnsTable } from '../db.js';
 import { ERROR_MESSAGES, HttpError, type ErrorCode } from '../errors.js';
 import { withIdempotencyKey } from '../idempotency.js';
+import { cleanQuestion } from '../text/clean.js';
 import { checkBackPressure, enqueue, jobId, queueUnavailable } from '../queue.js';
 
 const idParams = z.object({ id: z.uuid() });
@@ -96,6 +97,12 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   app,
   { db, queues, embeddingModel, settings },
 ) => {
+  // Questions and answer retries share one limit a minute, with one limiter for both routes.
+  const questionLimit = app.rateLimit({
+    max: settings.RATE_LIMIT_QUESTIONS_PER_MINUTE,
+    timeWindow: 60_000,
+  });
+
   app.post(
     '/documents/:id/conversations',
     { schema: { params: idParams, response: { 201: conversationView } } },
@@ -156,15 +163,12 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   app.post(
     '/conversations/:id/messages',
     {
+      preHandler: questionLimit,
       schema: {
         params: idParams,
         body: z.strictObject({
-          question: z
-            .string()
-            .trim()
-            .min(1)
-            .max(2_000)
-            .refine((q) => !q.includes('\u0000'), 'The question contains a NUL character.'),
+          // Hidden characters removed, composed and on one line, then checked for length.
+          question: z.string().overwrite(cleanQuestion).min(1).max(2_000),
         }),
         response: { 202: turnView },
       },
@@ -227,7 +231,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   // Answers a failed question again. Only the conversation's latest question, so its answer never skips a later one.
   app.post(
     '/messages/:id/retry',
-    { schema: { params: idParams, response: { 202: turnView } } },
+    { preHandler: questionLimit, schema: { params: idParams, response: { 202: turnView } } },
     async (request, reply) =>
       withIdempotencyKey(
         { db, settings, request, reply },

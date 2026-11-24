@@ -11,6 +11,7 @@ import { checkBackPressure, enqueue, jobId, queueUnavailable } from '../queue.js
 import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../text/decode.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
+const LASTING_FAILURES = new Set(['empty_document', 'too_many_passages']);
 
 const documentView = z.object({
   id: z.uuid(),
@@ -61,9 +62,16 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     },
   });
 
+  // Uploads and document retries share one limit a minute: one limiter, one counter, used by both routes. (The
+  // plugin's per-route config gives each route its own counter in memory, whatever its group.)
+  const uploadLimit = app.rateLimit({
+    max: settings.RATE_LIMIT_UPLOADS_PER_MINUTE,
+    timeWindow: 60_000,
+  });
+
   app.post(
     '/documents',
-    { schema: { response: { 202: documentView } } },
+    { preHandler: uploadLimit, schema: { response: { 202: documentView } } },
     async (request, reply) => {
       let file: MultipartFile;
       let bytes: Buffer;
@@ -137,7 +145,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   // Prepares a document again: one that failed, or one indexed with an embedding model other than the configured one.
   app.post(
     '/documents/:id/retry',
-    { schema: { params: idParams, response: { 202: documentView } } },
+    { preHandler: uploadLimit, schema: { params: idParams, response: { 202: documentView } } },
     async (request, reply) =>
       withIdempotencyKey(
         { db, settings, request, reply },
@@ -155,6 +163,14 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               'not_retryable',
               'Only a failed document, or one indexed with another embedding model, can be prepared again.',
             );
+          // The same file would fail the same way again.
+          if (doc.status === 'failed' && LASTING_FAILURES.has(doc.error_code ?? '')) {
+            throw new HttpError(
+              409,
+              'not_retryable',
+              'This document has no text or splits into too many passages, so it would fail again. Upload a different file.',
+            );
+          }
           const otherModel = doc.status === 'ready' && doc.embedding_model !== embeddingModel;
           if (doc.status !== 'failed' && !otherModel) throw notRetryable();
           await checkBackPressure(queues.prepare, settings.MAX_WAITING_DOCUMENTS);
@@ -215,7 +231,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     '/documents',
     {
       schema: {
-        querystring: z.object({
+        querystring: z.strictObject({
           limit: z.coerce.number().int().min(1).max(100).default(20),
           offset: z.coerce.number().int().min(0).default(0),
         }),

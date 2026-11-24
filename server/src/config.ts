@@ -10,6 +10,18 @@ const optionalString = z
   .optional()
   .transform((v) => (v === '' ? undefined : v));
 
+// A comma-separated list in one variable, compared in lower case.
+const commaList = (fallback: string) =>
+  z
+    .string()
+    .default(fallback)
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
 const schema = z.object({
   // Loopback by default so a host run never exposes the API to the network; Compose sets 0.0.0.0.
   HOST: z.string().default('127.0.0.1'),
@@ -80,6 +92,15 @@ const schema = z.object({
     .default(24 * 3_600_000),
   // A request holding a key this long without finishing is presumed dead, and its key can be taken over.
   IDEMPOTENCY_TAKEOVER_MS: z.coerce.number().int().positive().default(60_000),
+
+  // Host names the API answers to (compared without the port), and web origins allowed to send it POSTs. A request
+  // without an Origin header (curl, scripts) is not a browser page and is allowed. Step 8 adds the web app's origin.
+  ALLOWED_HOSTS: commaList('localhost,127.0.0.1'),
+  ALLOWED_ORIGINS: commaList(''),
+  // Requests a minute, for uploads (with document retries) and for questions (with answer retries). Keyed by client
+  // address; under Compose every request comes from the same Docker address, so these act as totals.
+  RATE_LIMIT_UPLOADS_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_QUESTIONS_PER_MINUTE: z.coerce.number().int().min(1).default(30),
 });
 
 export type Config = z.infer<typeof schema>;

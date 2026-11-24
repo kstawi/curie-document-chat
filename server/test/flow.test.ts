@@ -661,7 +661,6 @@ describe('questions and answers', () => {
     const conversation = await newConversation(documentId);
     expect((await ask(conversation, '')).statusCode).toBe(400);
     expect((await ask(conversation, 'x'.repeat(2_001))).statusCode).toBe(400);
-    expect((await ask(conversation, 'a\u0000b')).statusCode).toBe(400);
     const routes: [method: 'GET' | 'POST', path: (id: string) => string][] = [
       ['GET', (id) => `/documents/${id}`],
       ['GET', (id) => `/documents/${id}/content`],

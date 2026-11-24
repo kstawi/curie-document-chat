@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { Passage } from './search.js';
+import { forModel } from './text/clean.js';
 
 export interface EarlierTurn {
   question: string;
@@ -24,11 +25,11 @@ export function answerPrompt(
     'outcome to "not_in_document", say so briefly in answer, and leave quotes empty. Reply with JSON only.',
   ].join(' ');
   const blocks = [
-    `<${tag} kind="passages">\n${passages.map((p, i) => `[${i + 1}]\n${p.text}`).join('\n\n')}\n</${tag}>`,
+    `<${tag} kind="passages">\n${passages.map((p, i) => `[${i + 1}]\n${forModel(p.text)}`).join('\n\n')}\n</${tag}>`,
     earlier.length
-      ? `<${tag} kind="earlier-turns">\n${earlier.map((t) => `Q: ${t.question}\nA: ${t.answer}`).join('\n')}\n</${tag}>`
+      ? `<${tag} kind="earlier-turns">\n${earlier.map((t) => `Q: ${forModel(t.question)}\nA: ${forModel(t.answer)}`).join('\n')}\n</${tag}>`
       : '',
-    `<${tag} kind="question">\n${question}\n</${tag}>`,
+    `<${tag} kind="question">\n${forModel(question)}\n</${tag}>`,
   ].filter(Boolean);
   return [
     { role: 'system', content: system },
@@ -49,8 +50,8 @@ export function rewritePrompt(
     'refers to. Keep it short and in the language of the question. Reply with JSON only.',
   ].join(' ');
   const blocks = [
-    `<${tag} kind="earlier-turns">\n${earlier.map((t) => `Q: ${t.question}\nA: ${t.answer}`).join('\n')}\n</${tag}>`,
-    `<${tag} kind="question">\n${question}\n</${tag}>`,
+    `<${tag} kind="earlier-turns">\n${earlier.map((t) => `Q: ${forModel(t.question)}\nA: ${forModel(t.answer)}`).join('\n')}\n</${tag}>`,
+    `<${tag} kind="question">\n${forModel(question)}\n</${tag}>`,
   ];
   return [
     { role: 'system', content: system },

@@ -1,3 +1,4 @@
+import { hiddenLengthAt } from './clean.js';
 import type { Quote } from '../db.js';
 import { sectionAt, type Section } from './chunk.js';
 
@@ -13,7 +14,8 @@ const SINGLE_QUOTES = /[\u2018\u2019\u201A\u201B\u2032]/;
 const DOUBLE_QUOTES = /[\u201C\u201D\u201E\u201F\u2033]/;
 const DASHES = /[\u2010-\u2015\u2212]/;
 // Soft hyphen, zero-width characters, byte-order mark, and Markdown emphasis and code marks.
-const DROPPED = /[\u00AD\u200B-\u200D\u2060\uFEFF*_`]/;
+// Markdown emphasis and code marks, which a model may leave out of a quote.
+const MARKS = /[*_`]/;
 
 // The model may change quote and dash styles, spacing or emphasis marks when it copies a passage. Each character
 // here maps to one character or to none, so a match in the normalised text maps straight back to the original.
@@ -26,8 +28,14 @@ export function normalise(
   const map: number[] = [];
   let afterSpace = true;
   for (let i = from; i < to; i++) {
+    // Hidden characters first: some (form feed, vertical tab) would otherwise count as whitespace.
+    const hidden = hiddenLengthAt(text, i);
+    if (hidden) {
+      i += hidden - 1;
+      continue;
+    }
     let c = text[i]!;
-    if (DROPPED.test(c)) continue;
+    if (MARKS.test(c)) continue;
     if (/\s/.test(c)) {
       if (afterSpace) continue;
       c = ' ';

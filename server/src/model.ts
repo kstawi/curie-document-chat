@@ -133,6 +133,22 @@ function classify(err: unknown, signal?: AbortSignal): never {
   );
 }
 
+// JSON, or failing that, JSON after a model's printed thinking (`<think>...</think>`). Only as a fallback, so a valid
+// answer that happens to mention the tag is read as it is.
+function parseJson(content: string): unknown {
+  for (const text of [
+    content,
+    content.slice(content.lastIndexOf('</think>') + '</think>'.length),
+  ]) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      // try the next form
+    }
+  }
+  return undefined;
+}
+
 interface CallOptions {
   signal?: AbortSignal;
   timeout: number;
@@ -187,10 +203,8 @@ export function createModel(config: Config) {
     // Anything but a string (some servers send a list of parts) counts as no JSON.
     const raw: unknown = choice?.message?.content;
     const content = typeof raw === 'string' ? raw : '';
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
+    const parsed = parseJson(content);
+    if (parsed === undefined) {
       throw new ModelError('bad_output', 'the model did not return JSON', content.slice(0, 2_000));
     }
     const result = schema.safeParse(parsed);

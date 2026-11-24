@@ -1,4 +1,5 @@
 import { HttpError } from '../errors.js';
+import { forModel } from './clean.js';
 
 const UTF8_BOM = [0xef, 0xbb, 0xbf];
 
@@ -39,11 +40,12 @@ export function decodeUpload(bytes: Uint8Array): string {
 
 // A display title only: control and direction-override characters removed, length capped.
 export function cleanTitle(raw: string | undefined, fallback: string): string {
-  const title = (raw ?? '')
-    .replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, ' ')
+  const cleaned = forModel(raw ?? '')
+    .normalize('NFC')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 200);
+    .trim();
+  // Cut by code point, so an emoji at the limit stays whole.
+  const title = [...cleaned].slice(0, 200).join('').trim();
   return title || fallback;
 }
 
