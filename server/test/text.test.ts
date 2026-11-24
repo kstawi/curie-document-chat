@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
 import { cleanTitle, looksLikeMarkdown } from '../src/text/decode.js';
-import { forModel } from '../src/text/clean.js';
+import { cleanQuestion, forModel } from '../src/text/clean.js';
 import { mergeRanges, normalise, verifyQuotes } from '../src/text/quotes.js';
 
 const sample = readFileSync(
@@ -257,24 +257,26 @@ describe('upload helpers', () => {
 
 describe('hidden characters', () => {
   const hiddenOnes = [
-    0x0, 0x7, 0xb, 0xc, 0xd, 0x1f, 0x7f, 0x85, 0x9f, 0xad, 0x200b, 0x200e, 0x200f, 0x202a, 0x202e,
-    0x2060, 0x2064, 0x2066, 0x2069, 0xfeff, 0xe0000, 0xe0041, 0xe007f,
+    0x0, 0x7, 0xe, 0x1f, 0x7f, 0x85, 0x9f, 0xad, 0x200b, 0x200e, 0x200f, 0x202a, 0x202e, 0x2060,
+    0x2064, 0x2066, 0x2069, 0x3164, 0xfeff, 0xffa0, 0xe0000, 0xe0041, 0xe007f, 0xe0100, 0xe01ef,
   ].map((cp) => String.fromCodePoint(cp));
+  // Whitespace controls and the joiners are kept for the model; the matcher treats the first as whitespace.
   const visibleOnes = [
     'a',
     'Z',
     ' ',
     '\n',
     '\t',
+    '\v',
+    '\f',
+    '\r',
     '.',
     '"',
-    String.fromCodePoint(0x2019),
-    String.fromCodePoint(0x2014),
     'é',
     '😀',
     '#',
     '*',
-  ];
+  ].concat([0x2019, 0x2014, 0x200c, 0x200d].map((cp) => String.fromCodePoint(cp)));
 
   it('are dropped by quote matching exactly as they are removed from text for the model', () => {
     // A fixed pseudo-random sequence, so a failure can be replayed.
@@ -291,8 +293,20 @@ describe('hidden characters', () => {
     }
   });
 
+  it('are each removed for the model (the test above only shows the two sides agree)', () => {
+    for (const ch of hiddenOnes) expect(forModel(`a${ch}b`)).toBe('ab');
+  });
+
   it('leave ordinary text, such as the sample note, exactly as it is', () => {
     expect(forModel(sample)).toBe(sample);
+  });
+
+  it('leave whitespace controls as spaces, and Persian words and joined emoji whole', () => {
+    expect(cleanQuestion('Who owned\rthe\fpilot?')).toBe('Who owned the pilot?');
+    const persian = `می${String.fromCodePoint(0x200c)}خواهم`;
+    expect(cleanQuestion(persian)).toBe(persian);
+    const coder = `👩${String.fromCodePoint(0x200d)}💻 notes`;
+    expect(cleanTitle(coder, 'x')).toBe(coder);
   });
 
   it('are removed from titles, which are composed and cut by code point', () => {

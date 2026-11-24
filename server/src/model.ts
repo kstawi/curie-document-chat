@@ -136,10 +136,9 @@ function classify(err: unknown, signal?: AbortSignal): never {
 // JSON, or failing that, JSON after a model's printed thinking (`<think>...</think>`). Only as a fallback, so a valid
 // answer that happens to mention the tag is read as it is.
 function parseJson(content: string): unknown {
-  for (const text of [
-    content,
-    content.slice(content.lastIndexOf('</think>') + '</think>'.length),
-  ]) {
+  const end = content.lastIndexOf('</think>');
+  const forms = end < 0 ? [content] : [content, content.slice(end + '</think>'.length)];
+  for (const text of forms) {
     try {
       return JSON.parse(text);
     } catch {

@@ -186,10 +186,13 @@ directly: a JSON API needs six of them, so I chose that over a package. Uploads 
 and 30 a minute, retries counted with their kind) by client address. Under Compose every request reaches the API
 from one Docker address, so the limits are totals, which suits one person running it.
 
-**Hidden characters.** The stored text stays as uploaded, so offsets hold. What the model reads goes through one
-function that removes controls, bidi controls, zero-width and Unicode tag characters (which can spell a whole hidden
-sentence), and quote matching drops exactly the same set, so a quote of the visible text still verifies. A
-property test checks that over random text. Questions and titles lose the same characters and are composed (NFC).
+**Hidden characters.** The stored text stays as uploaded, so offsets hold. What the chat model reads, what is
+embedded and what the search index holds go through one function that removes controls, direction controls, the
+zero-width space and Unicode tag characters (which can spell a whole hidden sentence), and quote matching drops
+exactly the same set, so a quote of the visible text still verifies; a property test checks that over random text.
+I chose to keep the zero-width joiner and non-joiner, which Persian words and joined emoji need, and to let the
+England, Scotland and Wales flags lose their tag characters, since a hidden sentence could be dressed up as a flag.
+Questions and titles lose the same characters and are composed (NFC).
 
 **Prompt injection.** It can't be prevented, only contained. The model has no tools and the prompt no secrets;
 retrieval is scoped to one document in code; every block of data sits inside a tag the document can't guess; the

@@ -34,11 +34,14 @@ export function decodeUpload(bytes: Uint8Array): string {
     throw new HttpError(400, 'invalid_encoding', 'The file is not valid UTF-8.');
   }
   text = text.replace(/\r\n?/g, '\n');
-  if (text.trim() === '') throw new HttpError(400, 'empty_document', 'The document has no text.');
+  // Nothing visible counts as nothing: a file of hidden characters only is empty to a reader.
+  if (forModel(text).trim() === '') {
+    throw new HttpError(400, 'empty_document', 'The document has no text.');
+  }
   return text;
 }
 
-// A display title only: control and direction-override characters removed, length capped.
+// A display title only: hidden characters removed, composed (NFC), on one line, at most 200 code points.
 export function cleanTitle(raw: string | undefined, fallback: string): string {
   const cleaned = forModel(raw ?? '')
     .normalize('NFC')

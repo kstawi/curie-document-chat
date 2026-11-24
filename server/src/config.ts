@@ -93,9 +93,13 @@ const schema = z.object({
   // A request holding a key this long without finishing is presumed dead, and its key can be taken over.
   IDEMPOTENCY_TAKEOVER_MS: z.coerce.number().int().positive().default(60_000),
 
-  // Host names the API answers to (compared without the port), and web origins allowed to send it POSTs. A request
-  // without an Origin header (curl, scripts) is not a browser page and is allowed. Step 8 adds the web app's origin.
-  ALLOWED_HOSTS: commaList('localhost,127.0.0.1'),
+  // Host names the API answers to, compared without the port (one written with a port has it dropped; IPv6 goes in
+  // brackets, as [::1]). Keep 127.0.0.1: the container's health check uses it. Then the web origins allowed to send
+  // POSTs. A request without an Origin header (curl, scripts) is not a browser page and is allowed. Step 8 adds the
+  // web app's origin.
+  ALLOWED_HOSTS: commaList('localhost,127.0.0.1').transform((hosts) =>
+    hosts.map((h) => h.replace(/^(\[[^\]]*\]|[^:]+):\d+$/, '$1')),
+  ),
   ALLOWED_ORIGINS: commaList(''),
   // Requests a minute, for uploads (with document retries) and for questions (with answer retries). Keyed by client
   // address; under Compose every request comes from the same Docker address, so these act as totals.

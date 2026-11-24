@@ -3,6 +3,7 @@ import { ModelError } from '../model.js';
 import type { PrepareJob } from '../queue.js';
 import { toVector } from '../search.js';
 import { chunkText } from '../text/chunk.js';
+import { forModel } from '../text/clean.js';
 import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
 // Keeps each insert statement, and the vector text built for it, to a modest size.
@@ -54,7 +55,11 @@ export async function prepareDocument(
   );
 
   try {
-    const chunks = chunkText(doc.content ?? '');
+    // Indexed and embedded as the chat model reads it; the offsets still point into the stored text. A chunk with
+    // nothing visible left is skipped.
+    const chunks = chunkText(doc.content ?? '')
+      .map((c) => ({ ...c, text: forModel(c.text), headingPath: forModel(c.headingPath) }))
+      .filter((c) => c.text.trim() !== '');
     if (chunks.length === 0) throw new PrepareError('empty_document');
     if (chunks.length > MAX_CHUNKS) throw new PrepareError('too_many_passages');
     // The heading path goes into what is embedded, so a passage carries the context of its section.
@@ -73,14 +78,14 @@ export async function prepareDocument(
         await trx
           .insertInto('chunks')
           .values(
-            chunks.slice(i, i + INSERT_BATCH).map((c) => ({
+            chunks.slice(i, i + INSERT_BATCH).map((c, j) => ({
               document_id: documentId,
               ordinal: c.ordinal,
               start_offset: c.start,
               end_offset: c.end,
               heading_path: c.headingPath,
               text: c.text,
-              embedding: toVector(vectors[c.ordinal]!),
+              embedding: toVector(vectors[i + j]!),
             })),
           )
           .execute();

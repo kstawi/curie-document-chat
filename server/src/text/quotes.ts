@@ -1,4 +1,4 @@
-import { hiddenLengthAt } from './clean.js';
+import { forModel, hiddenLengthAt } from './clean.js';
 import type { Quote } from '../db.js';
 import { sectionAt, type Section } from './chunk.js';
 
@@ -13,7 +13,6 @@ export const MIN_QUOTE_CHARS = 20;
 const SINGLE_QUOTES = /[\u2018\u2019\u201A\u201B\u2032]/;
 const DOUBLE_QUOTES = /[\u201C\u201D\u201E\u201F\u2033]/;
 const DASHES = /[\u2010-\u2015\u2212]/;
-// Soft hyphen, zero-width characters, byte-order mark, and Markdown emphasis and code marks.
 // Markdown emphasis and code marks, which a model may leave out of a quote.
 const MARKS = /[*_`]/;
 
@@ -105,7 +104,9 @@ export function verifyQuotes(
       const end = range.map[at + needle.length - 1]! + 1;
       const section = sectionAt(sections, start);
       const line = content.slice(0, start).split('\n').length;
-      found = { text: content.slice(start, end), start, end, line, section };
+      // The text as the model read it, so no hidden character (an unclosed direction override, say) reaches a
+      // reader; the offsets still cover the stored text exactly.
+      found = { text: forModel(content.slice(start, end)), start, end, line, section };
       break;
     }
     if (!found) result.rejected.push({ text: quote, reason: 'not_found' });

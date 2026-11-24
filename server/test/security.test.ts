@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
+import { sql } from 'kysely';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { loadConfig } from '../src/config.js';
 import { answerQuestion } from '../src/jobs/answer.js';
 import { prepareDocument } from '../src/jobs/prepare.js';
 import { modelStatusKey } from '../src/queue.js';
@@ -72,6 +74,14 @@ describe('who may call the API', () => {
     }
   });
 
+  it('reads host names written with a port as the name alone', () => {
+    const settings = loadConfig({
+      ...process.env,
+      ALLOWED_HOSTS: 'Example.test:8080,[::1]:3000,localhost',
+    });
+    expect(settings.ALLOWED_HOSTS).toEqual(['example.test', '[::1]', 'localhost']);
+  });
+
   it('refuses a POST from a web page on another origin, but not one without an Origin', async () => {
     const post = (origin?: string) =>
       stack.app.inject({
@@ -95,8 +105,14 @@ describe('who may call the API', () => {
 
 describe('responses', () => {
   it('carry the security headers, errors included', async () => {
-    for (const url of ['/health', `/documents/${randomUUID()}`, '/documents/not-a-uuid']) {
-      const res = await stack.app.inject(url);
+    const requests = [
+      { url: '/health' },
+      { url: `/documents/${randomUUID()}` },
+      { url: '/documents/not-a-uuid' },
+      { url: '/health', headers: { host: 'attacker.example' } },
+    ];
+    for (const request of requests) {
+      const res = await stack.app.inject(request);
       expect(res.headers).toMatchObject({
         'x-content-type-options': 'nosniff',
         'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
@@ -158,6 +174,34 @@ describe('questions', () => {
   });
 });
 
+describe('documents with hidden characters', () => {
+  it('are refused when nothing visible is left', async () => {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: hidden(0xe0049, 0xe0067, 0x200b, 0x202e) }),
+    });
+    expect([res.statusCode, res.json().error]).toEqual([400, 'empty_document']);
+  });
+
+  it('are indexed from the cleaned text, so a soft hyphen cannot hide a word from search', async () => {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/documents',
+      ...multipart({ content: `# Access\n\nThe pass${hidden(0xad)}word is kept in the vault.\n` }),
+    });
+    const id = res.json().id as string;
+    await vi.waitFor(
+      async () => expect((await stack.app.inject(`/documents/${id}`)).json().status).toBe('ready'),
+      { timeout: 10_000 },
+    );
+    const { rows } = await sql<{ text: string; found: boolean }>`
+      select text, tsv @@ plainto_tsquery('english', 'password') as found from chunks where document_id = ${id}
+    `.execute(stack.db);
+    expect(rows).toEqual([{ text: '# Access\n\nThe password is kept in the vault.', found: true }]);
+  });
+});
+
 describe('a document that failed for good', () => {
   it('is not prepared again', async () => {
     for (const code of ['empty_document', 'too_many_passages']) {
@@ -199,6 +243,10 @@ describe('rate limits', () => {
     const doc = first.json().id as string;
     const tooMany = await upload();
     expect([tooMany.statusCode, tooMany.json().error]).toEqual([429, 'rate_limited']);
+    expect(tooMany.headers).toMatchObject({
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'no-store',
+    });
     expect(Number(tooMany.headers['retry-after'])).toBeGreaterThan(0);
     // Document retries count with uploads.
     const retry = await limited.app.inject({ method: 'POST', url: `/documents/${doc}/retry` });
