@@ -33,18 +33,16 @@ const { questions } = JSON.parse(read('samples/benchmark/questions.json')) as {
 
 const gemini = process.argv.includes('--gemini');
 const reuseAt = process.argv.indexOf('--reuse');
-const reused =
-  reuseAt > 0
-    ? new Map(
-        (
-          JSON.parse(read(process.argv[reuseAt + 1]!)) as {
-            rows: { id: string; variant: string; searched: string }[];
-          }
-        ).rows
-          .filter((r) => r.variant === 'rewritten')
-          .map((r) => [r.id, r.searched]),
-      )
-    : null;
+const reuseFile = reuseAt > 0 ? process.argv[reuseAt + 1]! : null;
+const reusedRun = reuseFile
+  ? (JSON.parse(read(reuseFile)) as {
+      chatModel: string;
+      rows: { id: string; variant: string; searched: string }[];
+    })
+  : null;
+const reused = reusedRun
+  ? new Map(reusedRun.rows.filter((r) => r.variant === 'rewritten').map((r) => [r.id, r.searched]))
+  : null;
 const base = loadConfig();
 const config: Config = gemini
   ? {
@@ -63,6 +61,12 @@ const config: Config = gemini
     }
   : base;
 if (gemini && !config.MODEL_API_KEY) throw new Error('GEMINI_API_KEY is not set in .env');
+
+const date = new Date().toISOString().slice(0, 10);
+const file = `docs/runs/${date}-benchmark-${config.EMBEDDING_MODEL.replace(/[^a-z0-9.]+/gi, '-')}${reused ? '-rescored' : ''}.json`;
+// Committed results are evidence: a second run on the same day must not replace one. Checked before any model call.
+if (existsSync(new URL(file, root)))
+  throw new Error(`${file} exists; move it before running again`);
 
 // Its own database, so a run never touches the app's or the tests' data.
 const url = new URL(config.DATABASE_URL);
@@ -111,7 +115,8 @@ try {
     .executeTakeFirstOrThrow();
   if (doc.status !== 'ready') throw new Error(`preparation failed: ${doc.error_code}`);
 
-  // Follow-ups as the app searches them: rewritten by the chat model, falling back as the app does.
+  // Follow-ups as the app searches them: rewritten by the chat model. On any failure this falls back to both
+  // questions together (the app instead runs the job again while the model server is down).
   const asked: { q: Question; text: string; variant: 'as asked' | 'rewritten'; note?: string }[] =
     [];
   for (const q of questions) {
@@ -230,10 +235,11 @@ try {
     ),
   ].join('\n');
 
-  const date = new Date().toISOString().slice(0, 10);
   const result = {
     date,
-    chatModel: config.CHAT_MODEL,
+    // With --reuse no chat model ran here: the rewrites, and their model, come from the earlier run.
+    chatModel: reusedRun ? reusedRun.chatModel : config.CHAT_MODEL,
+    ...(reuseFile ? { rewritesFrom: reuseFile } : {}),
     embeddingModel: model.embeddingModel,
     passages: (
       await db
@@ -247,10 +253,6 @@ try {
     rows,
   };
   mkdirSync(new URL('docs/runs/', root), { recursive: true });
-  const file = `docs/runs/${date}-benchmark-${config.EMBEDDING_MODEL.replace(/[^a-z0-9.]+/gi, '-')}${reused ? '-rescored' : ''}.json`;
-  // Committed results are evidence: a second run on the same day must not replace one.
-  if (existsSync(new URL(file, root)))
-    throw new Error(`${file} exists; move it before running again`);
   writeFileSync(new URL(file, root), `${JSON.stringify(result, null, 2)}\n`);
   console.log(
     `${config.EMBEDDING_MODEL} (chat ${config.CHAT_MODEL}), ${result.passages} passages\n\n${table}\n`,

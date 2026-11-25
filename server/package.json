@@ -9,7 +9,8 @@
     "dev:parser": "tsx watch --env-file-if-exists=../.env src/pdf-parser.ts",
     "bench": "tsx --env-file-if-exists=../.env scripts/benchmark.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "timing": "tsx --env-file-if-exists=../.env scripts/search-timing.ts"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.9",

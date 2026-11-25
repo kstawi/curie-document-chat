@@ -79,8 +79,9 @@ describe('searchDocument', () => {
   });
 
   it('skips a passage that would overflow the budget and keeps filling with smaller ones', async () => {
-    // Delta (about 400 tokens) ranks above Alpha by vector but doesn't fit next to Gamma within 40 tokens.
-    const picked = await searchDocument(db, documentId, 'lighthouse', [1, 0, 0], 40);
+    // Nearest to this vector, Delta (about 400 tokens) ranks third, after Alpha and Gamma (which have the word), and
+    // doesn't fit within 40 tokens; Beta, ranked after it, still does.
+    const picked = await searchDocument(db, documentId, 'lighthouse', [0.8, 0.2, 0], 40);
     // Picked best-first (Gamma, then Alpha and Beta), sent in document order.
     expect(picked.map(firstWord)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
@@ -105,6 +106,8 @@ describe('searchDocument', () => {
       await db
         .insertInto('chunks')
         .values(
+          // Stored last passage first; they must still come back in document order. (The query reads them through
+          // the (document, ordinal) index, which gives that order too, so this can't show a missing order by.)
           Array.from({ length: 30 }, (_, ordinal) => ({
             document_id: doc.id,
             ordinal,
@@ -112,7 +115,7 @@ describe('searchDocument', () => {
             end_offset: ordinal * 40 + 30,
             text: `Passage number ${ordinal} of the list.`,
             embedding: toVector([1, ordinal, 0]),
-          })),
+          })).reverse(),
         )
         .execute();
       // No passage has the word, and the vector ranking keeps only its top 20. A budget of exactly the
@@ -120,7 +123,8 @@ describe('searchDocument', () => {
       const total = Array.from({ length: 30 }, (_, n) =>
         Math.ceil(`Passage number ${n} of the list.`.length / 4),
       ).reduce((a, b) => a + b, 0);
-      expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], total)).toHaveLength(30);
+      const whole = await searchDocument(db, doc.id, 'zebra', [1, 0, 0], total);
+      expect(whole.map((p) => p.ordinal)).toEqual([...Array(30).keys()]);
       expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], total - 1)).toHaveLength(20);
     } finally {
       await db.deleteFrom('documents').where('id', '=', doc.id).execute();
