@@ -23,6 +23,8 @@ let root: Root;
 let container: HTMLDivElement;
 // The reply to the next upload, settled by the test.
 let uploadReply: { promise: Promise<Response>; settle: (r: Response) => void };
+// Holds the document list back when a test needs it to arrive late.
+let listGate: Promise<void> = Promise.resolve();
 
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -30,7 +32,10 @@ beforeEach(async () => {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/documents' && init?.method === 'POST') return uploadReply.promise;
-      if (url.startsWith('/api/documents?')) return reply({ items: docs });
+      if (url.startsWith('/api/documents?')) {
+        await listGate;
+        return reply({ items: docs });
+      }
       if (url.endsWith('/content')) {
         return reply({ content: 'Some text.', format: 'text', pages: null });
       }
@@ -144,14 +149,35 @@ it('keeps the split of each window when another closes, and starts a reopened on
 });
 
 // The upload finishes after windows were opened meanwhile; it must see them, not those open when it started.
-it('fits an upload that finishes after four windows were opened around the documents open by then', async () => {
+it('fits an upload that finishes after four windows were opened around them, leaving the focus alone', async () => {
   await click(container.querySelector('.sidebar-upload button'));
   await choose(note());
+  await click(container.querySelector('dialog [aria-label="Close"]'));
   for (const n of [1, 2, 3, 4]) await click(inList(n));
+  (inList(2) as HTMLElement).focus();
   await settleUpload(reply(doc(6)));
+  await nextFrame();
   expect(windows()).toEqual(['Document 1', 'Document 2', 'Document 3', 'Document 4']);
   expect(container.querySelector('[role="status"]')?.textContent).toContain('Close one');
   expect(inList(6)).toBeTruthy();
+  expect(document.activeElement).toBe(inList(2));
+});
+
+it('keeps the windows opened while an upload chosen before the list arrived went up', async () => {
+  act(() => root.unmount());
+  let release!: () => void;
+  listGate = new Promise((r) => (release = r));
+  root = createRoot(container);
+  await act(async () => root.render(<App />));
+  await click(container.querySelector('main button'));
+  await choose(note());
+  await click(container.querySelector('dialog [aria-label="Close"]'));
+  await act(async () => release());
+  await click(inList(1));
+  await click(inList(2));
+  await settleUpload(reply(doc(6)));
+  expect(windows()).toEqual(['Document 1', 'Document 2', 'Document 6']);
+  listGate = Promise.resolve();
 });
 
 it('opens an upload in a window with the focus, from the empty page', async () => {
@@ -164,17 +190,22 @@ it('opens an upload in a window with the focus, from the empty page', async () =
   expect(document.activeElement?.ariaLabel).toBe('Document 6');
 });
 
-it('opens the dialog again with the reason when an upload it was closed on fails', async () => {
+it('marks the upload button when an upload fails after its dialog was closed, and shows why when opened', async () => {
   const dialog = container.querySelector('dialog');
-  await click(container.querySelector('.sidebar-upload button'));
+  const button = () => container.querySelector('.sidebar-upload button');
+  await click(button());
   await choose(note());
   await click(dialog?.querySelector('[aria-label="Close"]'));
-  expect(dialog?.open).toBe(false);
   await settleUpload(
     new Response(JSON.stringify({ error: 'unsupported_type', message: 'Not a text file.' }), {
       status: 415,
     }),
   );
-  expect(dialog?.open).toBe(true);
+  expect(dialog?.open).toBe(false);
+  expect(button()?.textContent).toBe('Upload failed: see why');
+
+  await click(button());
   expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe('Not a text file.');
+  await click(dialog?.querySelector('[aria-label="Close"]'));
+  expect(button()?.textContent).toBe('Upload a document');
 });

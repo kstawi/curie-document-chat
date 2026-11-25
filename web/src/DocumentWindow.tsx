@@ -106,6 +106,7 @@ export function DocumentWindow({
           aria-valuetext={`Document ${split}%`}
           tabIndex={0}
           onPointerDown={(e) => {
+            if (e.button !== 0) return;
             // No text selection while dragging.
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);

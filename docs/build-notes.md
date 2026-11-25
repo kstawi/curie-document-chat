@@ -314,6 +314,8 @@ own state when another closes and that an upload finishing late sees the windows
 the page, so the question box's id comes from `useId`. Nothing around a window scrolls, so a quote scrolled into view
 moves only its own pane; the first review found the screen-reader text of an open document, placed outside the list,
 stretching the page, and every such text now sits inside its own element. The question box and the chat's header
-were made more compact, so a quarter of the screen still leaves room for answers. A failed upload opens the dialog
-again with its reason, a new upload's window takes the focus, and a file dropped outside the drop area is ignored
+were made more compact, so a quarter of the screen still leaves room for answers. An upload that fails shows its reason
+in the dialog, or, if the dialog was closed meanwhile, turns the upload button into "Upload failed: see why" rather
+than taking over the screen; a new upload's window takes the focus only if its dialog was still open; and a file
+(not dragged text) dropped outside the drop area is ignored
 rather than opened by the browser in place of the app.

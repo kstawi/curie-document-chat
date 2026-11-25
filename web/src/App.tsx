@@ -23,11 +23,16 @@ export function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const sidebar = useRef<HTMLElement>(null);
-  // The open windows for handlers that finish later, such as an upload.
+  // The open windows, the document list and whether the upload dialog is open, for handlers that finish later, such
+  // as an upload.
   const openNow = useRef(open);
+  const documentsNow = useRef(documents);
+  const uploadOpenNow = useRef(uploadOpen);
   useEffect(() => {
     openNow.current = open;
-  }, [open]);
+    documentsNow.current = documents;
+    uploadOpenNow.current = uploadOpen;
+  }, [open, documents, uploadOpen]);
 
   // Counts uploads and retries, so a list read that started before one doesn't undo it when it lands.
   const changes = useRef(0);
@@ -83,8 +88,9 @@ export function App() {
 
   // A document that has dropped out of the list (only the newest 100 are read) gives up its window's place.
   const show = (id: string, focus = false) => {
+    const listed = new Set(documentsNow.current.map((d) => d.id));
     const next = openWindow(
-      openNow.current.filter((o) => byId.has(o)),
+      openNow.current.filter((o) => listed.has(o)),
       id,
     );
     if (next.result === 'already-open' || (focus && next.result === 'opened')) {
@@ -110,28 +116,31 @@ export function App() {
     try {
       const doc = await api.upload(file);
       changed(doc);
+      // With the dialog still open, the focus goes to the new window (the button that opened the dialog may be gone
+      // with the empty page). Closed, the reader has moved on, so the focus stays where it is.
+      const focus = uploadOpenNow.current;
       setUploadOpen(false);
-      // The button that opened the dialog may be gone with the empty page, so the focus goes to the new window.
-      show(doc.id, true);
+      show(doc.id, focus);
     } catch (err) {
+      // Shown in the dialog; if it was closed meanwhile, the upload button says so until it is opened again.
       setUploadError((err as ApiError).message);
-      // The reason is shown in the dialog, so it opens again if it was closed while the file was going up.
-      setUploadOpen(true);
     } finally {
       setUploading(false);
     }
   };
 
-  const startUpload = () => {
-    setUploadError(null);
-    setUploadOpen(true);
-  };
+  const startUpload = () => setUploadOpen(true);
+  const uploadLabel = uploading
+    ? 'Uploading'
+    : uploadError
+      ? 'Upload failed: see why'
+      : 'Upload a document';
 
   // A file dropped anywhere but the upload dialog's drop area is ignored; the browser would otherwise open it in
-  // place of the app, and every open window with it.
+  // place of the app, and every open window with it. Dragged text still drops into the question box.
   useEffect(() => {
     const ignore = (e: DragEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || !e.dataTransfer?.types.includes('Files')) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
     };
@@ -151,7 +160,8 @@ export function App() {
         open={open}
         notice={notice}
         listError={listError}
-        uploading={uploading}
+        uploadLabel={uploadLabel}
+        uploadFailed={uploadError !== null && !uploading}
         listRef={sidebar}
         onSelect={show}
         onUpload={startUpload}
@@ -161,7 +171,7 @@ export function App() {
           <div className="empty">
             <p>Upload a document, or choose one from the list, to read it and ask about it.</p>
             <button className="button primary large" onClick={startUpload}>
-              {uploading ? 'Uploading' : 'Upload a document'}
+              {uploadLabel}
             </button>
           </div>
         ) : (
@@ -181,7 +191,11 @@ export function App() {
         busy={uploading}
         error={uploadError}
         onFile={(file) => void upload(file)}
-        onClose={() => setUploadOpen(false)}
+        onClose={() => {
+          setUploadOpen(false);
+          // Seen by now, so the upload button goes back to normal.
+          setUploadError(null);
+        }}
       />
     </div>
   );

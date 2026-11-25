@@ -79,12 +79,6 @@ textarea {
   color: var(--error);
 }
 
-.hint {
-  color: var(--muted);
-  font-size: 0.8rem;
-  margin: 0.5rem 0 1rem;
-}
-
 .button {
   display: inline-block;
   padding: 0.4rem 0.8rem;
@@ -137,23 +131,25 @@ button:disabled {
   background: var(--well);
 }
 
-/* Stays in view while the list scrolls. */
 .notice {
-  position: sticky;
-  top: -0.75rem;
-  z-index: 1;
-  margin: -0.75rem -0.75rem 0.5rem;
-  padding: 0.75rem;
+  flex: none;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
   font-size: 0.85rem;
   color: var(--accent);
 }
 
 .notice:empty {
-  margin-bottom: 0;
   padding: 0;
   border: 0;
+}
+
+/* An upload that failed after its dialog was closed: the reason is one click away. */
+.button.primary.failed {
+  background: var(--raised);
+  border-color: var(--error);
+  color: var(--error);
 }
 
 .upload {
@@ -549,6 +545,7 @@ mark {
 
 .chat-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 0.5rem;
