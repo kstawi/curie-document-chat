@@ -93,6 +93,9 @@ describe('conversation names', () => {
     expect(await title(id)).toBe(nameFromQuestion(question));
     expect(nameFromQuestion(question)).toHaveLength(60);
     expect(nameFromQuestion(question).endsWith('…')).toBe(true);
+    // While the model names it, the answer says so rather than "waiting".
+    await vi.waitFor(() => expect(stack.fake.nameRequests.length).toBe(before + 1));
+    expect((await stack.app.inject(`/messages/${turn}`)).json().stage).toBe('naming');
 
     release();
     expect((await finished(turn)).outcome).toBe('answered');
@@ -114,6 +117,8 @@ describe('conversation names', () => {
       { status: 500 },
       { content: 'not json' },
       { content: '{"name":"  "}' },
+      // Only a joiner, which would show as nothing.
+      { content: JSON.stringify({ name: String.fromCharCode(0x200d) }) },
     ]) {
       const id = await newConversation();
       stack.fake.nameReplies.push(failure);
@@ -167,6 +172,37 @@ describe('conversation names', () => {
     });
     expect([res.statusCode, res.json().error]).toEqual([503, 'queue_unavailable']);
     expect(await title(id)).toBeNull();
+
+    // Asked again, it is the first question once more, and named again.
+    const again = await stack.app.inject({
+      method: 'POST',
+      url: `/conversations/${id}/messages`,
+      payload: { question: 'Who owned the pilot, then?' },
+    });
+    expect([again.statusCode, again.json().sequence]).toEqual([202, 1]);
+    expect(await title(id)).toBe('Who owned the pilot, then?');
+    await finished(again.json().id as string);
+    expect(await title(id)).toBe('Named by the model');
+  });
+
+  it('keeps a name given before the first question, without asking the model', async () => {
+    const id = await newConversation();
+    expect((await rename(id, 'Named before asking')).statusCode).toBe(200);
+    const before = stack.fake.nameRequests.length;
+    await finished(await ask(id, 'Who owned the pilot?'));
+    expect(await title(id)).toBe('Named before asking');
+    expect(stack.fake.nameRequests.length).toBe(before);
+  });
+
+  it('names only from the first question: a follow-up never names the conversation', async () => {
+    const id = await newConversation();
+    stack.fake.nameReplies.push({ status: 500 });
+    await finished(await ask(id, 'Who owned the pilot?'));
+    expect(await title(id)).toBe('Who owned the pilot?');
+    const before = stack.fake.nameRequests.length;
+    await finished(await ask(id, 'And the hybrid one?'));
+    expect(await title(id)).toBe('Who owned the pilot?');
+    expect(stack.fake.nameRequests.length).toBe(before);
   });
 });
 
@@ -179,7 +215,9 @@ describe('renaming', () => {
     expect(await title(id)).toBe('Pilot notes');
     expect((await rename(id, 'x'.repeat(80))).statusCode).toBe(200);
 
-    for (const bad of ['', '   ', zeroWidth, 'x'.repeat(81)]) {
+    // Joiners, a variation selector or the blank braille cell alone would show as nothing.
+    const invisible = [0x200d, 0x200c, 0xfe0f, 0x2800].map((c) => String.fromCharCode(c));
+    for (const bad of ['', '   ', zeroWidth, ...invisible, 'x'.repeat(81)]) {
       const r = await rename(id, bad);
       expect([r.statusCode, r.json().error]).toEqual([400, 'invalid_title']);
     }

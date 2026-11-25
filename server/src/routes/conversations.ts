@@ -6,7 +6,7 @@ import { ANSWER_STAGES, type TurnsTable } from '../db.js';
 import { ERROR_MESSAGES, HttpError, type ErrorCode } from '../errors.js';
 import { withIdempotencyKey } from '../idempotency.js';
 import { cleanQuestion } from '../text/clean.js';
-import { cleanTitle, NAME_MAX_CHARS, nameFromQuestion } from '../text/decode.js';
+import { cleanTitle, hasVisible, NAME_MAX_CHARS, nameFromQuestion } from '../text/decode.js';
 import { checkBackPressure, enqueue, jobId, queueUnavailable } from '../queue.js';
 
 const idParams = z.object({ id: z.uuid() });
@@ -196,7 +196,7 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     },
     async (request) => {
       const title = cleanTitle(request.body.title, '', 1_000);
-      if (!title || [...title].length > NAME_MAX_CHARS) {
+      if (!hasVisible(title) || [...title].length > NAME_MAX_CHARS) {
         throw new HttpError(
           400,
           'invalid_title',

@@ -70,7 +70,14 @@ export interface Quote {
 
 // Where a pending answer is; null while it waits in the queue. "rewriting" turns a follow-up into a standalone
 // question and happens only when there are earlier answers.
-export const ANSWER_STAGES = ['rewriting', 'searching', 'writing', 'checking', 'retrying'] as const;
+export const ANSWER_STAGES = [
+  'naming',
+  'rewriting',
+  'searching',
+  'writing',
+  'checking',
+  'retrying',
+] as const;
 export type AnswerStage = (typeof ANSWER_STAGES)[number];
 
 export interface TurnsTable {

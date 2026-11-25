@@ -328,7 +328,8 @@ by the conversation menu; and a menu that shows the name with a short date.
 
 The first question, cut to 60 characters, is the name from the moment it is asked, set in the same transaction as the
 question. The answer job then makes one more model call, with the follow-up rewrite's settings (thinking off), before
-it searches, so the name is in place when the answer is final. Its failure, of any kind but a shutdown, is only noted
+it searches, so the name is in place when the answer is final. Meanwhile the answer's stage reads "naming". Its failure, of any kind but a cancellation (a shutdown or the
+job's own time limit), is only noted
 in the debug column: the question stays the name and the answer goes on. Each conversation records where its name
 came from, and the model's name is written only over the question's, so a rename made while the call is out wins, and a
 question answered again is not named twice. A rename is cleaned like a document title and kept to 80 characters.
@@ -340,3 +341,13 @@ now tell conversations apart). "Rename" swaps the menu for a text box: Enter sav
 leaves the name as it was, even though the box loses the focus as it goes. The list of conversations is read again
 after a question is sent and when its answer is final, which is when the model's name arrives. In a narrow window the
 menu takes its own row and the buttons wrap below it.
+
+A fresh review then found that saving compared the box with the conversation's name at that moment, not with the name
+it opened with: a box opened on the question and left as the model's name arrived would have saved the question as
+the user's name, and pressing Rename again mid-save reopened the box on the old name. The box now remembers what it
+opened with and sends nothing if that is unchanged, and the new name shows at once. Names made only of joiners,
+variation selectors or the blank braille cell are refused, as they would show as nothing. Switching to another window
+no longer counts as clicking away. A conversation's names are read again whenever it is switched to, so one whose
+answer finished elsewhere shows its new name. In the menu the name is wrapped in Unicode isolation marks (an option
+can't hold `<bdi>`), so a right-to-left name keeps the date after it, and the box counts characters as the server
+does.

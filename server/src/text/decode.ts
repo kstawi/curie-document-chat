@@ -48,6 +48,11 @@ export function cleanTitle(raw: string | undefined, fallback: string, max = 200)
 // Conversation names: what the model or a user gives, and the first question until then (migration 0006 cuts the
 // older ones the same way).
 export const NAME_MAX_CHARS = 80;
+// At least one letter, number, mark of punctuation or symbol: a name of joiners, variation selectors or the blank
+// braille cell alone would show as nothing.
+const BRAILLE_BLANK = String.fromCharCode(0x2800);
+export const hasVisible = (name: string) =>
+  /[\p{L}\p{N}\p{P}\p{S}]/u.test(name.replaceAll(BRAILLE_BLANK, ''));
 const QUESTION_NAME_CHARS = 60;
 export function nameFromQuestion(question: string): string {
   const points = [...question];

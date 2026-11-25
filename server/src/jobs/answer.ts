@@ -5,7 +5,7 @@ import { answerPrompt, namePrompt, rewritePrompt, type EarlierTurn } from '../pr
 import type { AnswerJob } from '../queue.js';
 import { searchDocument } from '../search.js';
 import { sectionIndex } from '../text/chunk.js';
-import { cleanTitle, NAME_MAX_CHARS } from '../text/decode.js';
+import { cleanTitle, hasVisible, NAME_MAX_CHARS } from '../text/decode.js';
 import { verifyQuotes } from '../text/quotes.js';
 import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
@@ -98,6 +98,7 @@ export async function answerQuestion(
     // The first question names its conversation. Until then, or if this fails, the question is the name; the answer
     // never depends on it. A name a user gave meanwhile is kept.
     if (turn.sequence === 1 && turn.titleSource === 'question') {
+      await setStage('naming');
       let name = '';
       try {
         name = cleanTitle(await model.name(namePrompt(turn.question), signal), '', NAME_MAX_CHARS);
@@ -105,7 +106,7 @@ export async function answerQuestion(
         if (!(err instanceof ModelError) || err.kind === 'aborted') throw err;
         trail.nameFailed = { error: err.message, detail: err.detail };
       }
-      if (name) {
+      if (name && hasVisible(name)) {
         await db
           .updateTable('conversations')
           .set({ title: name, title_source: 'model' })

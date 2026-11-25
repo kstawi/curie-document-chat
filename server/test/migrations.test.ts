@@ -105,6 +105,9 @@ describe('migrations', () => {
     const questions = [
       'Who owned the pilot?',
       `${'A long question about the pilot '.repeat(3)}end?`,
+      // A space where the cut falls, and characters outside the basic plane, which SQL and JS must count alike.
+      `${'x'.repeat(58)} and more after the cut`,
+      '😀'.repeat(61),
     ];
     const ids: string[] = [];
     for (const question of [...questions, null]) {
@@ -133,10 +136,11 @@ describe('migrations', () => {
       .execute();
     const byId = new Map(rows.map((r) => [r.id, r]));
     expect(ids.map((id) => [byId.get(id)!.title, byId.get(id)!.title_source])).toEqual([
-      [nameFromQuestion(questions[0]!), 'question'],
-      [nameFromQuestion(questions[1]!), 'question'],
+      ...questions.map((q) => [nameFromQuestion(q), 'question']),
       [null, null],
     ]);
     expect(nameFromQuestion(questions[1]!).endsWith('…')).toBe(true);
+    expect(nameFromQuestion(questions[2]!)).toBe(`${'x'.repeat(58)}…`);
+    expect([...nameFromQuestion(questions[3]!)]).toHaveLength(60);
   });
 });

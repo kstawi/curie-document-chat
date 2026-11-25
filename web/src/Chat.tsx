@@ -12,6 +12,7 @@ import type { Highlight } from './App';
 
 const STAGES: Record<string, string> = {
   waiting: 'Waiting in the queue',
+  naming: 'Naming the conversation',
   rewriting: 'Working out what the follow-up refers to',
   searching: 'Searching the document',
   writing: 'Writing the answer',
@@ -26,8 +27,13 @@ const when = (iso: string) =>
     hour: '2-digit',
     minute: '2-digit',
   });
-// The name with a short date, so two similar names can still be told apart.
-const label = (c: Conversation) => `${c.title ?? 'New conversation'} (${when(c.createdAt)})`;
+// The name with a short date, so two similar names can still be told apart. An option can't hold <bdi>, so the name is
+// isolated with the Unicode marks instead, and a right-to-left name keeps the date after it.
+const ISOLATE = String.fromCharCode(0x2068);
+const END_ISOLATE = String.fromCharCode(0x2069);
+const label = (c: Conversation) =>
+  `${ISOLATE}${c.title ?? 'New conversation'}${END_ISOLATE} (${when(c.createdAt)})`;
+const NAME_MAX_CHARS = 80;
 
 // What a screen reader hears as an answer the reader is waiting for moves on.
 function progress(m: Message) {
@@ -69,8 +75,9 @@ export function Chat({
   const [problem, setProblem] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [announcement, setAnnouncement] = useState('');
-  // The name being typed while renaming the conversation on screen; null when not renaming.
-  const [draft, setDraft] = useState<string | null>(null);
+  // The name being typed while renaming the conversation on screen, and the name it started from; null when not
+  // renaming.
+  const [draft, setDraft] = useState<{ value: string; from: string } | null>(null);
   const renameButton = useRef<HTMLButtonElement>(null);
   // Set by Escape: the box loses the focus as it goes, which would otherwise save what was typed.
   const renameCancelled = useRef(false);
@@ -144,6 +151,8 @@ export function Chat({
         setThread({ id: conversationId, messages: list });
         const pending = list.find((m) => m.status === 'pending');
         if (pending) track(pending.id);
+        // An answer finished while another conversation was on screen may have brought this one its name.
+        void refreshNames();
       })
       .catch((err: ApiError) => current && setProblem(err.message));
     return () => {
@@ -184,21 +193,26 @@ export function Chat({
     }
   };
 
-  // Enter saves and so does clicking away; Escape or an empty name leaves it as it was.
+  // Enter saves and so does clicking away; Escape, an empty name or the name the box opened with sends nothing, so a
+  // name the model gives meanwhile is never overwritten by an untouched box.
   const saveName = async () => {
-    const title = draft?.trim();
+    const title = draft?.value.trim();
+    const from = draft?.from;
     setDraft(null);
     if (renameCancelled.current) {
       renameCancelled.current = false;
       return;
     }
-    if (!conversationId || !title) return;
-    if (title === conversations.find((c) => c.id === conversationId)?.title) return;
+    if (!conversationId || !title || title === from) return;
+    const id = conversationId;
+    // Shown at once, so the box reopened before the server answers starts from the new name.
+    setConversations((list) => list.map((c) => (c.id === id ? { ...c, title } : c)));
     try {
-      const renamed = await api.rename(conversationId, title);
+      const renamed = await api.rename(id, title);
       setConversations((list) => list.map((c) => (c.id === renamed.id ? renamed : c)));
     } catch (err) {
       setProblem((err as ApiError).message);
+      void refreshNames();
     }
   };
 
@@ -231,13 +245,22 @@ export function Chat({
             <span>Name</span>
             <input
               autoFocus
-              value={draft}
-              maxLength={80}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => void saveName()}
+              value={draft.value}
+              // Cut by character, as the server counts, so emoji are not held to half the length.
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  value: [...e.target.value].slice(0, NAME_MAX_CHARS).join(''),
+                })
+              }
+              onBlur={() => {
+                // Switching to another window or tab is not clicking away: the box waits, and the focus comes back.
+                if (window.document.hasFocus()) void saveName();
+              }}
               onKeyDown={(e) => {
                 // Both hand the focus back to the Rename button; the box saves as it loses the focus.
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter') {
                   e.preventDefault();
                   renameButton.current?.focus();
                 } else if (e.key === 'Escape') {
@@ -272,7 +295,8 @@ export function Chat({
           disabled={conversationId === null}
           onClick={() => {
             renameCancelled.current = false;
-            setDraft(conversations.find((c) => c.id === conversationId)?.title ?? '');
+            const name = conversations.find((c) => c.id === conversationId)?.title ?? '';
+            setDraft({ value: name, from: name });
           }}
         >
           Rename

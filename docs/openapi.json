@@ -939,6 +939,7 @@
                       "nullable": true,
                       "type": "string",
                       "enum": [
+                        "naming",
                         "rewriting",
                         "searching",
                         "writing",
@@ -1119,6 +1120,7 @@
                             "nullable": true,
                             "type": "string",
                             "enum": [
+                              "naming",
                               "rewriting",
                               "searching",
                               "writing",
@@ -1303,6 +1305,7 @@
                       "nullable": true,
                       "type": "string",
                       "enum": [
+                        "naming",
                         "rewriting",
                         "searching",
                         "writing",
@@ -1480,6 +1483,7 @@
                       "nullable": true,
                       "type": "string",
                       "enum": [
+                        "naming",
                         "rewriting",
                         "searching",
                         "writing",

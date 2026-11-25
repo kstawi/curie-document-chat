@@ -17,7 +17,7 @@ const ANSWER = JSON.stringify({
   answer: 'Mira Chen.',
   quotes: ['Mira Chen owned the limited pilot.'],
 });
-const STAGE_ORDER = ['rewriting', 'searching', 'writing', 'checking'];
+const STAGE_ORDER = ['naming', 'rewriting', 'searching', 'writing', 'checking'];
 
 // A real listening server and fetch, since the point is what arrives over the connection and when.
 async function listen(s: Stack) {

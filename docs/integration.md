@@ -14,8 +14,8 @@ Uploads are Markdown or text up to 1 MB, or PDF up to 5 MB and 100 pages; the ty
 A conversation's `title` is `null` until its first question. That question, cut to 60 characters, is its name at
 once; the answer job then asks the model for a short name from the question alone and replaces it, before the answer
 is final. If that call fails, the question stays. `PATCH /conversations/:id` with `{ "title": "..." }` renames a
-conversation: the name is cleaned like a document title, must keep 1 to 80 visible characters (400 `invalid_title`
-otherwise), and is never replaced by the model's. A client that shows names can read the conversation list again after
+conversation: the name is cleaned like a document title, must keep 1 to 80 characters, at least one of them visible (400 `invalid_title` otherwise; a body that is not
+`{ "title": "..." }` gets 400 `invalid_request`), and is never replaced by the model's. A client that shows names can read the conversation list again after
 sending a first question and when its answer is final.
 
 ## Following an answer
@@ -42,6 +42,8 @@ from closing a quiet connection; clients ignore it.
 `stage` on a pending message is one of:
 
 - `null`: waiting in the queue, including after a worker stopped mid-answer and put it back;
+- `naming`: asking the model for the conversation's name (only for its first question, and only while the name is
+  still that question);
 - `rewriting`: turning a follow-up into a standalone question (only when there are earlier answers);
 - `searching`, `writing`, `checking` (the quotes);
 - `retrying`: the model server was down or stuck, and the answer is waiting to be tried again.

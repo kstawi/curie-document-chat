@@ -28,6 +28,8 @@ let listGate: Promise<void> = Promise.resolve();
 // Every document's conversations, and the renames asked for.
 let conversations: { id: string; createdAt: string; title: string | null }[] = [];
 let renames: string[] = [];
+// Holds a rename's reply back when a test needs it to arrive late.
+let renameGate: Promise<void> = Promise.resolve();
 
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,16 +45,47 @@ beforeEach(async () => {
         return reply({ content: 'Some text.', format: 'text', pages: null });
       }
       if (init?.method === 'PATCH') {
+        await renameGate;
         const title = (JSON.parse(init.body as string) as { title: string }).title;
         renames.push(title);
         conversations = conversations.map((c) => ({ ...c, title }));
         return reply(conversations[0]);
       }
       if (url.endsWith('/conversations')) return reply({ items: conversations });
+      if (url.endsWith('/messages') && init?.method === 'POST') {
+        const question = (JSON.parse(init.body as string) as { question: string }).question;
+        return reply({
+          id: '20000000-0000-4000-8000-000000000001',
+          conversationId: url.split('/')[3],
+          sequence: 1,
+          question,
+          status: 'completed',
+          stage: null,
+          outcome: 'not_in_document',
+          answer: null,
+          note: 'Not covered.',
+          quotes: [],
+          error: null,
+          model: 'fake',
+          createdAt: '2026-11-25T10:00:00.000Z',
+          updatedAt: '2026-11-25T10:00:00.000Z',
+        });
+      }
       return reply({ items: [] });
     }),
   );
   window.matchMedia = () => ({ matches: false }) as MediaQueryList;
+  // jsdom's page never has the focus; a browser's does while it is in use.
+  document.hasFocus = () => true;
+  // Answers are followed over an event stream, which jsdom lacks; nothing here needs its events.
+  vi.stubGlobal(
+    'EventSource',
+    class {
+      readyState = 1;
+      addEventListener() {}
+      close() {}
+    },
+  );
   Element.prototype.scrollIntoView = () => {};
   // jsdom has no modal dialogs; these do what the browser's do to the open attribute and the close event.
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
@@ -220,39 +253,97 @@ it('marks the upload button when an upload fails after its dialog was closed, an
   expect(button()?.textContent).toBe('Upload a document');
 });
 
-it('shows a conversation by its name and date, and renames it with Enter but not Escape', async () => {
+const CONVERSATION = '10000000-0000-4000-8000-000000000001';
+const isolated = (name: string) =>
+  `${String.fromCharCode(0x2068)}${name}${String.fromCharCode(0x2069)} (`;
+
+it('shows a conversation by its name and date, and renames it on Enter or clicking away, never on Escape', async () => {
   conversations = [
-    {
-      id: '10000000-0000-4000-8000-000000000001',
-      createdAt: '2026-11-25T10:00:00.000Z',
-      title: 'Who owned the pilot?',
-    },
+    { id: CONVERSATION, createdAt: '2026-11-25T10:00:00.000Z', title: 'Who owned the pilot?' },
   ];
   renames = [];
   await click(inList(1));
   const header = () => container.querySelector('section.window .chat-header')!;
-  expect(header().querySelector('option')?.textContent).toMatch(/^Who owned the pilot\? \(.+\)$/);
+  const shown = () => header().querySelector('option')?.textContent ?? '';
+  expect(shown().startsWith(isolated('Who owned the pilot?'))).toBe(true);
 
-  const type = async (text: string, key: string) => {
+  const box = () => header().querySelector('input');
+  const open = async () => {
     await click([...header().querySelectorAll('button')].find((b) => b.textContent === 'Rename'));
-    const box = header().querySelector('input')!;
-    expect(document.activeElement).toBe(box);
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setter.call(box, text);
-      box.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => box.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+    expect(document.activeElement).toBe(box());
   };
+  const typeIn = (text: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box(), text);
+      box()!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  const press = (key: string) =>
+    act(async () => box()!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+  const clickAway = () => act(async () => (inList(2) as HTMLElement).focus());
 
-  await type('Pilot owner', 'Enter');
+  await open();
+  await typeIn('Pilot owner');
+  await press('Enter');
   expect(renames).toEqual(['Pilot owner']);
-  expect(header().querySelector('input')).toBeNull();
-  expect(header().querySelector('option')?.textContent).toMatch(/^Pilot owner \(/);
+  expect(box()).toBeNull();
+  expect(shown().startsWith(isolated('Pilot owner'))).toBe(true);
 
-  await type('Something else', 'Escape');
+  await open();
+  await typeIn('Something else');
+  await press('Escape');
   expect(renames).toEqual(['Pilot owner']);
-  expect(header().querySelector('option')?.textContent).toMatch(/^Pilot owner \(/);
   expect(document.activeElement?.textContent).toBe('Rename');
+
+  await open();
+  await typeIn('Pilot ownership');
+  await clickAway();
+  expect(renames).toEqual(['Pilot owner', 'Pilot ownership']);
+
+  // Rename pressed while the box is open: the box saves as the button takes the focus, then reopens on the new name,
+  // so leaving it untouched can't send the old one back.
+  await open();
+  await typeIn('Pilot lead');
+  const renameButton = [...header().querySelectorAll('button')].find(
+    (b) => b.textContent === 'Rename',
+  )!;
+  let release!: () => void;
+  renameGate = new Promise((r) => (release = r));
+  await act(async () => renameButton.focus());
+  await click(renameButton);
+  expect(box()?.value).toBe('Pilot lead');
+  await act(async () => {
+    release();
+    await renameGate;
+  });
+  renameGate = Promise.resolve();
+  await clickAway();
+  expect(renames).toEqual(['Pilot owner', 'Pilot ownership', 'Pilot lead']);
+
+  // Opened and left untouched, it sends nothing, even if the name changed meanwhile (the model's arriving).
+  await open();
+  conversations = conversations.map((c) => ({ ...c, title: 'Named by the model' }));
+  await clickAway();
+  expect(renames).toEqual(['Pilot owner', 'Pilot ownership', 'Pilot lead']);
+  conversations = [];
+});
+
+it('reads the names again after a question is sent', async () => {
+  conversations = [{ id: CONVERSATION, createdAt: '2026-11-25T10:00:00.000Z', title: 'Before' }];
+  await click(inList(1));
+  const header = () => container.querySelector('section.window .chat-header')!;
+  expect(header().querySelector('option')?.textContent?.startsWith(isolated('Before'))).toBe(true);
+
+  // The model names it while the question goes in.
+  conversations = [{ ...conversations[0]!, title: 'After' }];
+  const textarea = container.querySelector('section.window textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      textarea,
+      'Who owned the pilot?',
+    );
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(container.querySelector('section.window form.ask button.primary'));
+  expect(header().querySelector('option')?.textContent?.startsWith(isolated('After'))).toBe(true);
   conversations = [];
 });

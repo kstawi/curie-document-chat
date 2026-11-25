@@ -142,8 +142,8 @@ written-up runs instead. Every failure case and how it was checked is in
 
 ## Complete and remaining
 
-Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 262
-server and 16 web tests run in containers by `docker compose run --rm test`.
+Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 264
+server and 17 web tests run in containers by `docker compose run --rm test`.
 
 Not verified or not done:
 
