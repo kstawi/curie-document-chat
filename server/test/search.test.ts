@@ -81,10 +81,9 @@ describe('searchDocument', () => {
   it('skips a passage that would overflow the budget and keeps filling with smaller ones', async () => {
     // Delta (about 400 tokens) ranks above Alpha by vector but doesn't fit next to Gamma within 40 tokens.
     const picked = await searchDocument(db, documentId, 'lighthouse', [1, 0, 0], 40);
-    expect(picked.map(firstWord)).not.toContain('Delta');
-    expect(picked.map(firstWord)).toEqual(expect.arrayContaining(['Gamma', 'Alpha', 'Beta']));
+    // Picked best-first (Gamma, then Alpha and Beta), sent in document order.
+    expect(picked.map(firstWord)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
-
   it('returns the passages in document order, and a short document whole', async () => {
     const all = await searchDocument(db, documentId, 'lighthouse', [1, 0, 0], 4_000);
     expect(all.map(firstWord)).toEqual(['Alpha', 'Beta', 'Gamma', 'Delta']);
@@ -116,8 +115,13 @@ describe('searchDocument', () => {
           })),
         )
         .execute();
-      // No passage has the word, and the vector ranking keeps only its top 20.
-      expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], 4_000)).toHaveLength(30);
+      // No passage has the word, and the vector ranking keeps only its top 20. A budget of exactly the
+      // document's size still takes it whole; one token less leaves ranking to choose.
+      const total = Array.from({ length: 30 }, (_, n) =>
+        Math.ceil(`Passage number ${n} of the list.`.length / 4),
+      ).reduce((a, b) => a + b, 0);
+      expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], total)).toHaveLength(30);
+      expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], total - 1)).toHaveLength(20);
     } finally {
       await db.deleteFrom('documents').where('id', '=', doc.id).execute();
     }
@@ -132,5 +136,13 @@ describe('rankPassages', () => {
     expect(byWord.Gamma!.keywordRank).not.toBeNull();
     expect(byWord.Beta).toMatchObject({ keywordRank: null, meaningRank: 2 });
     expect(firstWord(ranked[0]!)).toBe('Gamma');
+  });
+
+  it('ranks the passage matching more of the question first by keyword', async () => {
+    // Only Gamma has both words.
+    const ranked = await rankPassages(db, documentId, 'lighthouse keeper', [0, 0, 1]);
+    const byWord = Object.fromEntries(ranked.map((p) => [firstWord(p), p]));
+    expect(byWord.Gamma!.keywordRank).toBe(1);
+    expect(byWord.Alpha!.keywordRank).toBe(2);
   });
 });

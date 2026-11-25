@@ -54,7 +54,7 @@ export async function rankPassages(
     select c.id, c.ordinal, c.start_offset as start, c.end_offset as "end",
       c.heading_path as "headingPath", c.text,
       k.rank::int as "keywordRank", s.rank::int as "meaningRank",
-      coalesce(1.0 / (${RRF_K} + k.rank), 0) + coalesce(1.0 / (${RRF_K} + s.rank), 0) as score
+      (coalesce(1.0 / (${RRF_K} + k.rank), 0) + coalesce(1.0 / (${RRF_K} + s.rank), 0))::float8 as score
     from chunks c
     left join keyword k on k.id = c.id
     left join semantic s on s.id = c.id
@@ -74,7 +74,8 @@ export async function searchDocument(
   questionEmbedding: number[],
   budgetTokens: number,
 ): Promise<Passage[]> {
-  // The same estimate as estimateTokens, summed in SQL (where characters count as code points).
+  // estimateTokens summed in SQL, where a character outside the basic plane (an emoji) counts once rather than
+  // twice, so text full of them can go whole at up to twice the budget; the too-long fallback covers that.
   const { tokens } = await db
     .selectFrom('chunks')
     .select(sql<number>`coalesce(sum(ceil(char_length(text) / 4.0)), 0)::int`.as('tokens'))

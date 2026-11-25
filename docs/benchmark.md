@@ -9,15 +9,18 @@ local embedding model and with the hosted one a reviewer would use?
   measuring stations, written by Claude for this test (about 5,100 words, 37 passages, about 1.8 times the passage
   budget).
 - Questions: `samples/benchmark/questions.json`, 24 in three kinds: 8 asking for an exact name, number or date; 10
-  paraphrases that avoid the document's own words; 6 follow-ups that only make sense after an earlier question. Each
-  lists text that the right passage contains; a ranked passage counts as found if it overlaps that text.
+  paraphrases written to avoid the document's wording (five still share a word or two with their passage, see the
+  caveats below); 6 follow-ups that only make sense after an earlier question. Each lists text from the passages that
+  answer it; a ranked passage counts as found if it overlaps that text.
 - Follow-ups are searched as the app searches them: rewritten into a standalone question by the configured chat
   model, using the earlier question and answer. They are also measured as asked, to show what the rewrite adds.
 - The real code runs: the preparation job chunks and embeds the document into its own database (`curie_bench`), and
   `rankPassages` ranks the passages for each question, giving the keyword order, the meaning order and the fused
   order at once.
 - Measures: hit@1 (the right passage ranked first) and hit@3 (in the top three) for keyword, meaning and hybrid; and
-  for hybrid, whether the right passage is among those actually sent to the model within the 4,000-token budget.
+  whether the right passage is among those actually sent to the model within the 4,000-token budget.
+- The 2026-11-25 result files store only whether each method found the passage; later runs also store the passage
+  numbers each method ranked first to third, so labels can be checked again without the models.
 - Runs: `npm run bench -w server` for the local models in `.env`, and `npm run bench -w server -- --gemini` for
   Gemini (chat `gemini-3.5-flash`, embeddings `gemini-embedding-2`), which reads `GEMINI_API_KEY` from `.env`. Each
   run writes its results to `docs/runs/`.
@@ -86,11 +89,24 @@ passage in the top three only 1, 4 and 2 times out of 6.
 ### Decision
 
 Meaning alone leads hybrid at hit@3 by two questions with nomic and by one with Gemini. The two models point
-different ways, so by the rule hybrid stays the default, and the gap is reported here. On what the model actually
-receives, the passages that fit the 4,000-token budget, hybrid and meaning alone both include the right passage for
-all 24 questions with both models.
+different ways, so by the rule hybrid stays the default. On what the model actually receives, the passages that fit
+the 4,000-token budget, hybrid and meaning alone both include the right passage for all 24 questions with both
+models.
 
-What the numbers say beyond the rule: on this document keyword search adds little, and paraphrases are where it
-loses; the rewrite of follow-ups matters more than the choice of method. With the uncorrected labels the rule would
-have switched; the decision rests on labels completed after seeing the first results, which is a weakness of this
-benchmark and why both rounds are reported.
+That outcome is weak evidence, and it should be read that way:
+
+- It turns on one question. With the first labels the rule would have switched to meaning alone. Of the five
+  questions given more right passages, only `para-who-uses-it` changed the gap: with Gemini, hybrid now finds it in
+  its top three. Gemini's meaning ranking was already at 24 of 24, so the completed labels could only help hybrid.
+- The completed labels are not perfectly even. Two borderline passages were not added: the summary's mention of the
+  November 2025 surge warning (for `exact-surge-date`), and the opening line about the people living behind the dunes
+  and the harbour master's warning (for `para-who-uses-it`). No third round of labels was made after seeing results;
+  either addition helps keyword most and cannot move the Gemini gap of one.
+- Five paraphrases still share a word or two with their passage (`para-injury`: rock; `para-rusted-parts`: metal,
+  parts, took; `para-false-alarms`: jumps, water; `para-turbine-removed`: wind, taken, away; `para-no-heating`:
+  winter, sensors), which flatters keyword search and, through it, hybrid.
+- One rewrite changed its question: Gemma turned "Is there a limit on that spending?" into a question about the cost
+  of one message, which still counts as found. Hit@k does not judge rewrites.
+
+What the numbers do say: on this document keyword search adds little and loses on paraphrases, meaning alone is at
+least as good as hybrid, and the rewrite of follow-ups matters more than the choice of method.

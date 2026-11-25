@@ -3,7 +3,8 @@
 // Usage: npm run bench -w server              (the models in .env)
 //        npm run bench -w server -- --gemini  (Gemini, with GEMINI_API_KEY from .env)
 //        add `--reuse docs/runs/<file>.json` to search the follow-ups with that run's rewrites instead of new ones
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { sql } from 'kysely';
 import pg from 'pg';
 import { pino } from 'pino';
 import { loadConfig, type Config } from '../src/config.js';
@@ -117,7 +118,9 @@ try {
     asked.push({ q, text: q.question, variant: 'as asked' });
     if (!q.previous) continue;
     if (reused) {
-      asked.push({ q, text: reused.get(q.id)!, variant: 'rewritten' });
+      const text = reused.get(q.id);
+      if (!text) throw new Error(`${q.id}: no rewrite in the reused results`);
+      asked.push({ q, text, variant: 'rewritten' });
       continue;
     }
     try {
@@ -152,6 +155,9 @@ try {
     hit3: Hits;
     inBudget: boolean;
     meaningInBudget: boolean;
+    // Passage numbers ranked first, second and third by each method, so labels can be checked again without the
+    // models (added after the 2026-11-25 runs, which don't have it).
+    top3: Record<(typeof METHODS)[number], number[]>;
   }[] = [];
   // What a meaning-only search would send: the same best-first fill of the budget, over the meaning order.
   const fill = (order: RankedPassage[]) => {
@@ -193,6 +199,9 @@ try {
       hit3: Object.fromEntries(METHODS.map((m) => [m, found(a.q, orders[m].slice(0, 3))])) as Hits,
       inBudget: found(a.q, sent),
       meaningInBudget: found(a.q, fill(orders.meaning)),
+      top3: Object.fromEntries(
+        METHODS.map((m) => [m, orders[m].slice(0, 3).map((p) => p.ordinal)]),
+      ) as Record<(typeof METHODS)[number], number[]>,
     });
   }
 
@@ -229,7 +238,7 @@ try {
     passages: (
       await db
         .selectFrom('chunks')
-        .select((eb) => eb.fn.countAll<number>().as('n'))
+        .select(sql<number>`count(*)::int`.as('n'))
         .where('document_id', '=', documentId)
         .executeTakeFirstOrThrow()
     ).n,
@@ -239,6 +248,9 @@ try {
   };
   mkdirSync(new URL('docs/runs/', root), { recursive: true });
   const file = `docs/runs/${date}-benchmark-${config.EMBEDDING_MODEL.replace(/[^a-z0-9.]+/gi, '-')}${reused ? '-rescored' : ''}.json`;
+  // Committed results are evidence: a second run on the same day must not replace one.
+  if (existsSync(new URL(file, root)))
+    throw new Error(`${file} exists; move it before running again`);
   writeFileSync(new URL(file, root), `${JSON.stringify(result, null, 2)}\n`);
   console.log(
     `${config.EMBEDDING_MODEL} (chat ${config.CHAT_MODEL}), ${result.passages} passages\n\n${table}\n`,

@@ -47,9 +47,10 @@ role without superuser rights.
 model, 3,072 for Gemini's by default). A question is only ever compared with the chunks of one document, embedded
 by the model that embedded that document (from step 2 the app checks the stored model name, with the vector size
 when one is configured, before searching).
-Search is exact and scoped to one document: a 100-page PDF makes a few hundred chunks, few enough to compare all of them (to
-be timed with the benchmark), and pgvector can't index a column without a fixed size except with one partial index
-per model size. Each chunk also gets a generated `tsvector` from its heading path and text, with a GIN index, for
+Search is exact and scoped to one document: a 100-page PDF makes a few hundred chunks, and at the cap of 5,000 the
+whole search takes about 50 ms with 768-dimension vectors and 60 ms with 3,072 (median of 7, measured in step 7), so
+an index isn't needed; pgvector can't index a column without a fixed size except with one partial index per model
+size. Each chunk also gets a generated `tsvector` from its heading path and text, with a GIN index, for
 the keyword half of the search.
 
 **Health.** `/health` is liveness only and never touches a dependency. `/ready` checks Postgres and Redis, each
@@ -254,8 +255,10 @@ be tried again, and a parser that is down is retried with the job.
 
 `docs/benchmark.md` has the method, the rule written before the first run, and both rounds of results. On a
 5,100-word generated report with 24 questions, meaning alone found the right passage in the top three a little more
-often than hybrid (23 and 21 of 24 with nomic, 24 and 23 with Gemini); by the rule hybrid stays, and both put the
-right passage among those sent to the model for all 24. Keyword search on its own was weakest, mostly on paraphrases,
-and the rewrite of follow-ups mattered more than the method. Running the hosted path found a bug: Gemini leaves out the
+often than hybrid (23 and 21 of 24 with nomic, 24 and 23 with Gemini). By the rule hybrid stays, but only because
+labels completed after the first run (which would have switched) moved one question; both put the right passage
+among those sent to the model for all 24. Keyword search on its own was weakest, mostly on paraphrases, and the
+rewrite of follow-ups mattered more than the method. A follow-up on a document that fits whole still pays for the
+rewrite and the question's embedding, which it then doesn't use; skipping them is a next step. Running the hosted path found a bug: Gemini leaves out the
 index of the first embedding, and the app had refused every such reply. Search now sends a document that fits the
 budget whole, which the claim in step 2 assumed but the top-20 candidate lists did not guarantee.
