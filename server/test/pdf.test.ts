@@ -36,7 +36,9 @@ const extract = async (url: string, body: Uint8Array) => {
   return { status: res.status, body: await res.json() };
 };
 
-describe('the PDF parser', () => {
+// Each test starts parser processes, which can take a few seconds each on a busy machine; vitest's 5 s default
+// timed out twice in full runs on 2026-11-25.
+describe('the PDF parser', { timeout: 30_000 }, () => {
   const lines: string[] = [];
   const log = pino({ level: 'info' }, { write: (line: string) => void lines.push(line) });
   const parser = createPdfParser({ timeoutMs: 20_000, heapMb: 256, log });
@@ -227,7 +229,7 @@ describe('the PDF parser', () => {
   });
 });
 
-describe('PDF documents', () => {
+describe('PDF documents', { timeout: 30_000 }, () => {
   let s: Stack;
   beforeAll(async () => {
     s = await startStack();
