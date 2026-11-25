@@ -22,6 +22,7 @@ export function DocumentList({
   onChanged: (doc: DocumentInfo) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const selected = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState<'upload' | 'retry' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -65,6 +66,7 @@ export function DocumentList({
         {documents.map((d) => (
           <li key={d.id}>
             <button
+              ref={d.id === selectedId ? selected : undefined}
               className={`document${d.id === selectedId ? ' selected' : ''}`}
               aria-current={d.id === selectedId ? 'true' : undefined}
               onClick={() => onSelect(d.id)}
@@ -76,7 +78,12 @@ export function DocumentList({
               <button
                 className="button small"
                 disabled={busy !== null}
-                onClick={() => void run('retry', () => api.retryDocument(d.id))}
+                onClick={() =>
+                  // The button goes once the retry is in, so the focus moves to its document.
+                  void run('retry', () => api.retryDocument(d.id)).then(() =>
+                    selected.current?.focus(),
+                  )
+                }
               >
                 {d.status === 'ready' ? 'Prepare again for the current model' : 'Try again'}
               </button>

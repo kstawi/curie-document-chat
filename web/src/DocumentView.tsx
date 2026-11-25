@@ -27,7 +27,11 @@ export function DocumentView({
     let current = true;
     api
       .content(id)
-      .then((content) => current && setLoaded({ id, content }))
+      .then((content) => {
+        if (!current) return;
+        setLoaded({ id, content });
+        setProblem(null);
+      })
       .catch((err: ApiError) => current && setProblem(err.message));
     return () => {
       current = false;
@@ -47,32 +51,19 @@ export function DocumentView({
     first.current?.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
   }, [highlight]);
 
-  if (!document) {
-    return (
-      <main className="pane reader empty">
-        <p>Upload a document, or choose one from the list, to read it and ask about it.</p>
-      </main>
-    );
-  }
   const firstLit = highlight ? lines.findIndex((l) => touches(l, highlight)) : -1;
-  return (
-    <main className="pane reader" aria-label={document.title}>
-      <h1>
-        <bdi>{document.title}</bdi>
-      </h1>
-      {document.status === 'failed' && <p className="error">{document.error?.message}</p>}
-      {!ready && document.status !== 'failed' && (
-        <p className="muted">{WAITING[document.status]}</p>
-      )}
-      {problem && <p className="error">{problem}</p>}
-      {content && (
+  // Built again only when the text or the highlight changes: the list refresh re-renders this pane every 2 s
+  // while any document is being prepared, and a long document has thousands of lines.
+  const text = useMemo(
+    () =>
+      content && (
         <div className="document-text">
           {lines.map((line: Line, i) => {
             const isFirst = i === firstLit;
             return (
               <Fragment key={line.start}>
                 {line.page !== undefined && (
-                  <div className="page-marker" role="separator">
+                  <div className="page-marker" role="separator" aria-label={`Page ${line.page}`}>
                     Page {line.page}
                   </div>
                 )}
@@ -97,7 +88,28 @@ export function DocumentView({
             );
           })}
         </div>
+      ),
+    [content, lines, highlight, firstLit],
+  );
+
+  if (!document) {
+    return (
+      <main className="pane reader empty">
+        <p>Upload a document, or choose one from the list, to read it and ask about it.</p>
+      </main>
+    );
+  }
+  return (
+    <main className="pane reader" aria-label={document.title}>
+      <h1>
+        <bdi>{document.title}</bdi>
+      </h1>
+      {document.status === 'failed' && <p className="error">{document.error?.message}</p>}
+      {!ready && document.status !== 'failed' && (
+        <p className="muted">{WAITING[document.status]}</p>
       )}
+      {problem && <p className="error">{problem}</p>}
+      {text}
     </main>
   );
 }

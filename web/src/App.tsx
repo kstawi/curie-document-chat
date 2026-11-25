@@ -17,7 +17,11 @@ export function App() {
 
   // Counts uploads and retries, so a list read that started before one doesn't undo it when it lands.
   const changes = useRef(0);
+  // One read at a time, so a slow one can't land after the next poll's and show older states.
+  const reading = useRef(false);
   const refresh = useCallback(async () => {
+    if (reading.current) return;
+    reading.current = true;
     const seen = changes.current;
     try {
       const list = await api.documents();
@@ -25,6 +29,8 @@ export function App() {
       setListError(null);
     } catch (err) {
       setListError((err as ApiError).message);
+    } finally {
+      reading.current = false;
     }
   }, []);
 

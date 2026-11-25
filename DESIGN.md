@@ -285,5 +285,6 @@ no questions until then.
 **Look and safety.** Dark, Charis SIL for the document and Inter for the interface, both served from the app with
 their licences; the orange accent marks the main button and quote highlights. Nothing on the page is inline, so the
 Content Security Policy allows only the app's own files, and text from a document or a model is always shown as
-text. nginx shares a network with the API alone, away from Postgres and Redis. Tests cover splitting the text into lines and cutting highlights (`web/test/text.test.ts`); the panes were
+text. nginx shares a network with the API alone, away from Postgres and Redis. The layout is for a desktop window;
+narrow screens get no layout of their own yet. Tests cover splitting the text into lines and cutting highlights (`web/test/text.test.ts`); the panes were
 checked by hand in a browser against a stand-in model with canned replies, since no model was loaded.

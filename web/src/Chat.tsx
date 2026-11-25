@@ -25,7 +25,18 @@ const when = (iso: string) =>
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    // Two conversations started in the same minute would otherwise look alike.
+    second: '2-digit',
   });
+
+// What a screen reader hears as an answer the reader is waiting for moves on.
+function progress(m: Message) {
+  if (m.status === 'pending') return STAGES[m.stage ?? 'waiting'] ?? 'Working on the answer.';
+  if (m.status === 'failed') return 'The answer failed.';
+  if (m.outcome === 'answered') return 'Answer ready.';
+  if (m.outcome === 'not_in_document') return 'The document does not seem to cover this.';
+  return 'No answer could be backed by a quote.';
+}
 
 function where(q: Message['quotes'][number]) {
   if (q.startPage !== undefined) {
@@ -57,6 +68,7 @@ export function Chat({
   const [question, setQuestion] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
   const stopFollowing = useRef<(() => void) | null>(null);
   // The conversation on screen, for replies that arrive after the reader has switched to another.
   const shown = useRef<string | null>(null);
@@ -76,11 +88,20 @@ export function Chat({
     );
   const track = (id: string) => {
     stopFollowing.current?.();
-    stopFollowing.current = follow(id, put);
+    stopFollowing.current = follow(id, (message) => {
+      put(message);
+      if (message.conversationId === shown.current) setAnnouncement(progress(message));
+    });
   };
 
-  // Stop following an answer when this conversation or document is left.
-  useEffect(() => () => stopFollowing.current?.(), []);
+  // Stop following an answer when this conversation or document is left, and follow none that is sent after.
+  useEffect(
+    () => () => {
+      stopFollowing.current?.();
+      shown.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     let current = true;
@@ -164,21 +185,11 @@ export function Chat({
         setConversationId(created.id);
       }
     });
-    if (sent) {
-      setQuestion('');
-      // The Ask button turns disabled while the answer is pending, which would drop the focus.
-      input.current?.focus();
-    }
+    if (sent) setQuestion('');
+    // The Ask button turns disabled while sending, which would drop the focus.
+    input.current?.focus();
   };
 
-  const announcement =
-    latest?.status === 'pending'
-      ? STAGES[latest.stage ?? 'waiting']
-      : latest?.status === 'completed'
-        ? 'Answer ready.'
-        : latest?.status === 'failed'
-          ? 'The answer failed.'
-          : '';
   return (
     <section className="pane chat" aria-label="Conversation">
       <header className="chat-header">
@@ -271,7 +282,10 @@ export function Chat({
                   <button
                     className="button small"
                     disabled={sending}
-                    onClick={() => void send(() => api.retryMessage(m.id))}
+                    onClick={() =>
+                      // The button goes once the retry is in, so the focus moves to the question box.
+                      void send(() => api.retryMessage(m.id)).then(() => input.current?.focus())
+                    }
                   >
                     Try again
                   </button>
@@ -282,7 +296,7 @@ export function Chat({
         ))}
         <div ref={end} />
       </div>
-      {/* Mounted from the start, so screen readers announce each change to it. */}
+      {/* Mounted from the start, so screen readers announce each change to it; filled only by answers being followed. */}
       <p className="visually-hidden" role="status">
         {announcement}
       </p>

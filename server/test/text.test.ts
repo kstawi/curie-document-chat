@@ -5,6 +5,7 @@ import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../src/text/decode.
 import { answerPrompt, rewritePrompt } from '../src/prompt.js';
 import { cleanQuestion, forModel } from '../src/text/clean.js';
 import { mergeRanges, normalise, verifyQuotes } from '../src/text/quotes.js';
+import { toLines } from '../../web/src/text.js';
 
 const sample = readFileSync(
   new URL('../../samples/harbor-archive-pilot.md', import.meta.url),
@@ -493,5 +494,32 @@ describe('next line (U+0085)', () => {
     const chunks = chunkText(text);
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) expect(c.text).toMatch(/^pilots(\u0085pilots)*$/);
+  });
+});
+
+describe('the web app', () => {
+  it('draws as headings exactly the lines the search treats as sections', () => {
+    const [nbsp, vt, ff] = [0xa0, 0x0b, 0x0c].map((c) => String.fromCharCode(c));
+    const content = [
+      '# Title',
+      `# ${nbsp} ##`,
+      `#\t${vt} ##`,
+      `# ${ff} #`,
+      '## Results ##',
+      '# C#',
+      '#hashtag',
+      '```',
+      '# a comment in code',
+      '```',
+      '~~~',
+      '# also code',
+      '~~~',
+      `# ${'x'.repeat(198)}`,
+      `# ${'x'.repeat(199)}`,
+      '#',
+    ].join('\n');
+    const drawn = toLines(content, 'markdown', null).filter((l) => l.kind === 'heading');
+    expect(drawn.map((l) => l.start)).toEqual(sectionIndex(content).map((s) => s.start));
+    expect(drawn).toHaveLength(4);
   });
 });

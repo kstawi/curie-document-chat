@@ -25,8 +25,9 @@ export interface PageSpan {
 // The same rules as the server's chunker (server/src/text/chunk.ts), so a line shown as a heading is one the search
 // treats as a heading too.
 const MAX_HEADING_CHARS = 200;
-// The server also drops closing hashes from a heading's title; whether a line is a heading never depends on them.
 const HEADING = /^(#{1,6})[ \t]+(.*)$/;
+// Matters here too: "#", a no-break space, then "##" is no heading, as the hashes go before the trim.
+const CLOSING_HASHES = /[ \t]+#+[ \t]*$/;
 const FENCE = /^\s*(```|~~~)/;
 const QUOTE = /^[ \t]*>[ \t]?/;
 const LIST = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
@@ -50,7 +51,7 @@ export function toLines(content: string, format: string, pages: PageSpan[] | nul
         const heading = text.length <= MAX_HEADING_CHARS ? HEADING.exec(text) : null;
         const quote = QUOTE.exec(text);
         const list = LIST.exec(text);
-        if (heading && heading[2]!.trim()) {
+        if (heading && heading[2]!.replace(CLOSING_HASHES, '').trim()) {
           line.kind = 'heading';
           line.level = heading[1]!.length;
           line.markerEnd = start + text.length - heading[2]!.length;
