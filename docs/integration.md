@@ -3,6 +3,8 @@
 What a client needs beyond the route list: how an answer's progress is streamed, and how quotes point into the
 document. The routes and their bodies are in `DESIGN.md` and the Fastify schemas.
 
+Uploads are Markdown or text up to 1 MB, or PDF up to 5 MB and 100 pages; the type comes from the file's first bytes.
+
 ## Following an answer
 
 `POST /conversations/:id/messages` returns 202 with the message, still `pending`. From there, either poll
@@ -83,3 +85,10 @@ stored text are always `\n`.
 A quote's `text` is that span with hidden characters (controls, zero-width and direction characters, tag
 characters) removed, so it can differ from the raw slice when the document contains them; highlight by offsets, not
 by searching for `text`.
+
+### PDFs
+
+For a PDF, `GET /documents/:id/content` also returns `pages`: `[{ page, start, end }]`, where each page's text sits in
+`content`; pages are joined by a blank line. A quote from a PDF has `startPage` and `endPage`, and its `section` is
+`page N`, or `pages N–M` when it crosses a page break. Running headers and footers are not in the text, and words
+hyphenated at a line end stay as the PDF has them (a quote may still join them).

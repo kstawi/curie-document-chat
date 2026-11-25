@@ -1,3 +1,4 @@
+import type { PageSpan } from '../db.js';
 import { isBlank, WHITESPACE } from './clean.js';
 
 export interface Chunk {
@@ -45,8 +46,9 @@ function parseHeading(line: string): { level: number; title: string } | null {
 
 type Block = Span & { heading?: { level: number; title: string } };
 
-// Paragraphs (runs of non-blank lines) and Markdown headings, with offsets into the original text.
-function blocks(content: string): Block[] {
+// Paragraphs (runs of non-blank lines) and Markdown headings, with offsets into the original text. Text from a PDF
+// has no Markdown: a line starting with "#" there is just text.
+function blocks(content: string, markdown: boolean): Block[] {
   const out: Block[] = [];
   let paragraph: Span | null = null;
   let pos = 0;
@@ -55,8 +57,8 @@ function blocks(content: string): Block[] {
   for (const line of content.split('\n')) {
     const span = { start: pos, end: pos + line.length };
     pos = span.end + 1;
-    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-    const heading = inFence ? null : parseHeading(line);
+    if (markdown && /^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    const heading = inFence || !markdown ? null : parseHeading(line);
     // A line with nothing visible on it is blank, as it is to a reader.
     if (heading || isBlank(line)) {
       if (paragraph) out.push(paragraph);
@@ -72,9 +74,9 @@ function blocks(content: string): Block[] {
   return out;
 }
 
-function headingPaths(content: string): (Block & { path?: string })[] {
+function headingPaths(content: string, markdown = true): (Block & { path?: string })[] {
   const path: string[] = [];
-  return blocks(content).map((block) => {
+  return blocks(content, markdown).map((block) => {
     if (!block.heading) return block;
     path.length = block.heading.level - 1;
     path[block.heading.level - 1] = block.heading.title;
@@ -82,8 +84,9 @@ function headingPaths(content: string): (Block & { path?: string })[] {
   });
 }
 
-// Where each section starts, for labelling a quote with the section it was found in.
-export function sectionIndex(content: string): Section[] {
+// Where each section starts, for labelling a quote with the section it was found in. A PDF's sections are its pages.
+export function sectionIndex(content: string, pages?: PageSpan[] | null): Section[] {
+  if (pages) return pages.map((p) => ({ start: p.start, path: `page ${p.page}` }));
   return headingPaths(content).flatMap((b) =>
     b.path === undefined ? [] : [{ start: b.start, path: b.path }],
   );
@@ -131,7 +134,7 @@ function splitLong(content: string, block: Span): Span[] {
 // Splits on headings and paragraphs, packing paragraphs up to about TARGET_CHARS. A chunk normally stays inside
 // one section; a section shorter than MIN_CHARS is packed together with the next. Each chunk is an exact slice of
 // the stored text, so its offsets locate it in the document. Its heading path is that of the section it starts in.
-export function chunkText(content: string): Chunk[] {
+export function chunkText(content: string, markdown = true): Chunk[] {
   const chunks: Chunk[] = [];
   let path = '';
   let current: (Span & { headingPath: string; hasBody: boolean }) | null = null;
@@ -150,7 +153,7 @@ export function chunkText(content: string): Chunk[] {
     current = null;
   };
 
-  for (const block of headingPaths(content)) {
+  for (const block of headingPaths(content, markdown)) {
     if (block.path !== undefined) {
       path = block.path;
       // Packing stops once the chunk would pass TARGET_CHARS, so a long run of blank lines can't stretch it.
@@ -178,4 +181,18 @@ export function chunkText(content: string): Chunk[] {
   }
   flush();
   return chunks;
+}
+
+// A PDF is chunked page by page, so no passage spans two pages; each is labelled with its page.
+export function chunkPages(content: string, pages: PageSpan[]): Chunk[] {
+  return pages
+    .flatMap((p) =>
+      chunkText(content.slice(p.start, p.end), false).map((c) => ({
+        ...c,
+        start: c.start + p.start,
+        end: c.end + p.start,
+        headingPath: `page ${p.page}`,
+      })),
+    )
+    .map((c, ordinal) => ({ ...c, ordinal }));
 }

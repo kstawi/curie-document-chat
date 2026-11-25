@@ -163,3 +163,19 @@ A first question and a follow-up, each followed over `GET /messages/:id/events` 
   stored answer once and the close.
 - `checking` took milliseconds, so the first question's stream showed it just before the final event and the
   follow-up's not at all: a stage that is over before the stream re-reads the row is skipped, as designed.
+
+## Step 6: a real paper on a real model (a hand check, no criteria written beforehand)
+
+Raw output: [runs/2026-11-25-step6-pdf.txt](runs/2026-11-25-step6-pdf.txt). The paper: Reimers and Gurevych (2019),
+"Sentence-BERT", arXiv 1908.10084, CC BY-SA 4.0, two columns, 11 pages; downloaded for this check only and read only by
+the parser container.
+
+- The first extraction read the columns in the right order but ran words together where the PDF marks a gap with a
+  narrow space of its own ("Withsemantically meaningfulwe"), left accents apart ("Universit¨at"), and broke
+  paragraphs mid-sentence beside the small footnote lines. All three were fixed, each with a generated fixture that
+  shows it, and the paper re-read: 11 pages, 44,640 characters, in 2 s.
+- Three questions on Gemma: the BERT and SBERT timings (two verified quotes on page 1, both copied by the model
+  across hyphenated line ends), the default pooling strategy (one quote, page 3), and the price of the GPUs, which
+  came back `not_in_document`.
+- Still as the page has them: footnotes sit at the end of their column, so a sentence that runs past them into the
+  next column is split there; tables come out cell by cell.

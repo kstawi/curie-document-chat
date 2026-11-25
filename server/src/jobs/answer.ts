@@ -70,6 +70,7 @@ export async function answerQuestion(
         'documents.id as documentId',
         'documents.status as documentStatus',
         'documents.content',
+        'documents.page_map as pages',
         'documents.embedding_model as embeddingModel',
       ])
       .where('turns.id', '=', turnId)
@@ -152,7 +153,8 @@ export async function answerQuestion(
     await setStage('checking');
     // Checked against the passages sent with the reply kept, which are the smaller set after shrinking.
     const content = turn.content ?? '';
-    const check = verifyQuotes(content, reply.quotes, passages, sectionIndex(content));
+    const sections = sectionIndex(content, turn.pages);
+    const check = verifyQuotes(content, reply.quotes, passages, sections, turn.pages);
     const outcome =
       reply.outcome === 'not_in_document'
         ? 'not_in_document'

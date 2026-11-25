@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
+import { chunkPages, chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
 import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../src/text/decode.js';
 import { answerPrompt, rewritePrompt } from '../src/prompt.js';
 import { cleanQuestion, forModel } from '../src/text/clean.js';
@@ -280,6 +280,8 @@ describe('hidden characters', () => {
     '*',
   ].concat(
     [0x85, 0x2019, 0x2014, 0x200c, 0x200d, 0xfe0e, 0xfe0f].map((cp) => String.fromCodePoint(cp)),
+    // Hyphens, a ligature, a full-width letter and a combining accent go through the hyphen and NFKD rules.
+    ['-', '‐', 'ﬁ', 'Ａ', '́', '\u{1d400}'],
   );
 
   it('are dropped by quote matching exactly as they are removed from text for the model', () => {
@@ -371,6 +373,77 @@ describe('hidden characters', () => {
     const long = cleanTitle(`${'a'.repeat(199)}😀b`, 'x');
     expect([...long]).toHaveLength(200);
     expect(long.endsWith('😀')).toBe(true);
+  });
+});
+
+describe('quote matching on PDF-style text', () => {
+  const check = (content: string, quote: string) =>
+    verifyQuotes(content, [quote], [{ start: 0, end: content.length }], []).verified[0];
+
+  it('matches ligatures, full-width letters and accents however they were stored', () => {
+    const content = 'The ﬁnal decision was made by Ｍira Chén in spring.';
+    const q = check(content, 'final decision was made by Mira Chén')!;
+    expect(content.slice(q.start, q.end)).toBe('ﬁnal decision was made by Ｍira Chén');
+  });
+
+  it('joins a word hyphenated at a line end, and keeps a real hyphen matching either way', () => {
+    const content =
+      'Every result was checked against the archive exam-\nple set and the well-\nknown list.';
+    expect(check(content, 'checked against the archive example set')).toBeDefined();
+    expect(check(content, 'the archive example set and the well-known list')).toBeDefined();
+    expect(
+      check('A well-known list of every archive.', 'A well-known list of every'),
+    ).toBeDefined();
+    // Not between letters: a page range keeps its hyphen.
+    expect(
+      check('See the table on pages 3-\n4 for the figures.', 'See the table on pages 34 for'),
+    ).toBeUndefined();
+  });
+
+  it('ends a quote after the whole last character, even outside the basic plane', () => {
+    const content = 'The pilot closed with a party and a cake 🎂 for the team.';
+    const q = check(content, 'closed with a party and a cake 🎂')!;
+    expect(content.slice(q.start, q.end)).toBe('closed with a party and a cake 🎂');
+  });
+
+  it('gives a PDF quote its pages, and a range label when it crosses a page break', () => {
+    const content = 'The decision was recorded on\n\n18 March 2026 by the owner.';
+    const pages = [
+      { page: 1, start: 0, end: 28 },
+      { page: 2, start: 30, end: content.length },
+    ];
+    const { verified } = verifyQuotes(
+      content,
+      ['recorded on 18 March 2026 by the owner', '18 March 2026 by the owner'],
+      [{ start: 0, end: content.length }],
+      sectionIndex(content, pages),
+      pages,
+    );
+    expect(verified[0]).toMatchObject({ startPage: 1, endPage: 2, section: 'pages 1–2' });
+    expect(verified[1]).toMatchObject({ startPage: 2, endPage: 2, section: 'page 2' });
+  });
+});
+
+describe('chunkPages', () => {
+  it('keeps passages within their page, labels them with it, and reads no Markdown in a PDF', () => {
+    // As Markdown, the last line would be a heading with nothing under it, after a paragraph too long to pack it
+    // with, and so left out of every passage.
+    const first = `${'Mira Chen owned the limited pilot. '.repeat(13)}\n# 2 more pilots are planned for spring`;
+    const content = `${first}\n\nThe second page starts here.`;
+    const pages = [
+      { page: 1, start: 0, end: first.length },
+      { page: 2, start: first.length + 2, end: content.length },
+    ];
+    expect(chunkPages(content, pages)).toEqual([
+      { ordinal: 0, start: 0, end: first.length, headingPath: 'page 1', text: first },
+      {
+        ordinal: 1,
+        start: first.length + 2,
+        end: content.length,
+        headingPath: 'page 2',
+        text: 'The second page starts here.',
+      },
+    ]);
   });
 });
 

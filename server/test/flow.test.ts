@@ -114,8 +114,7 @@ describe('upload and preparation', () => {
     ['a binary file', Buffer.from([0x41, 0x00, 0x42]), 415, 'unsupported_type'],
     ['a UTF-16 file', Buffer.from([0xff, 0xfe, 0x41, 0x00]), 400, 'invalid_encoding'],
     ['invalid UTF-8', Buffer.from([0x41, 0xc3, 0x28]), 400, 'invalid_encoding'],
-    ['a PDF (not yet supported)', Buffer.from('%PDF-1.7\n'), 415, 'unsupported_type'],
-    ['a file over 1 MB', 'a'.repeat(1024 * 1024 + 1), 413, 'file_too_large'],
+    ['a text file over 1 MB', 'a'.repeat(1024 * 1024 + 1), 413, 'file_too_large'],
   ])('rejects %s', async (_label, content, status, code) => {
     const before = await stack.db
       .selectFrom('documents')

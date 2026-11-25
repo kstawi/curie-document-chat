@@ -21,7 +21,9 @@ FROM base AS runtime
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 COPY server/package.json server/
-RUN npm ci --omit=dev --workspace server --no-audit --no-fund && npm cache clean --force
+# Optional packages left out: the only one at run time is pdf.js's native canvas, which draws pages; reading text
+# doesn't need it.
+RUN npm ci --omit=dev --omit=optional --workspace server --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 WORKDIR /app/server
 USER node

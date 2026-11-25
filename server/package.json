@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev:api": "tsx watch --env-file-if-exists=../.env src/api.ts",
     "dev:worker": "tsx watch --env-file-if-exists=../.env src/worker.ts",
+    "dev:parser": "tsx watch --env-file-if-exists=../.env src/pdf-parser.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -18,6 +19,7 @@
     "ioredis": "6.1.0",
     "kysely": "0.29.9",
     "openai": "7.63.0",
+    "pdfjs-dist": "6.5.438",
     "pg": "8.23.1",
     "pino": "10.4.0",
     "zod": "4.6.7"
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@types/node": "22.20.5",
     "@types/pg": "8.23.1",
+    "pdf-lib": "1.17.1",
     "tsx": "4.23.15",
     "vitest": "5.1.1"
   }

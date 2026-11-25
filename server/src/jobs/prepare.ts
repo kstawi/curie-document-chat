@@ -2,7 +2,8 @@ import { ERROR_MESSAGES, type ErrorCode } from '../errors.js';
 import { ModelError } from '../model.js';
 import type { PrepareJob } from '../queue.js';
 import { toVector } from '../search.js';
-import { chunkText } from '../text/chunk.js';
+import { extractPdf, ParserUnavailable, PdfFailure } from '../pdf/client.js';
+import { chunkPages, chunkText } from '../text/chunk.js';
 import { forModel, isBlank } from '../text/clean.js';
 import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
@@ -10,8 +11,8 @@ import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './
 const INSERT_BATCH = 500;
 // Enough context for the embedding without letting a deep or long heading path crowd out the passage itself.
 const MAX_EMBEDDED_PATH_CHARS = 300;
-// With a 1 MB upload and small sections packed together, real documents stay well under this; past it something
-// is odd about the file, and it is refused rather than embedded for minutes.
+// With a 1 MB upload or a 100-page PDF and small sections packed together, real documents stay well under this;
+// past it something is odd about the file, and it is refused rather than embedded for minutes.
 const MAX_CHUNKS = 5_000;
 
 class StaleJob extends Error {}
@@ -22,8 +23,9 @@ class PrepareError extends Error {
   }
 }
 
-// Chunks and embeds a document, then marks it ready, all or nothing. Every update is guarded by status and attempt:
-// a stale job (deleted row, newer attempt) changes nothing, and a job run again after a crash redoes the same work.
+// Chunks and embeds a document, then marks it ready, all or nothing; a PDF's text is extracted first. Every update is
+// guarded by status and attempt: a stale job (deleted row, newer attempt) changes nothing, and a job run again after
+// a crash redoes the same work.
 export async function prepareDocument(
   { db, model, config }: JobDeps,
   { documentId, attempt }: PrepareJob,
@@ -35,7 +37,7 @@ export async function prepareDocument(
     .where('id', '=', documentId)
     .where('attempt', '=', attempt)
     .where('status', 'in', ['queued', 'processing'])
-    .returning(['content'])
+    .returning(['content', 'format', 'page_map'])
     .executeTakeFirst();
   if (!doc) {
     log.info({ documentId, attempt }, 'skipped a stale preparation job');
@@ -55,9 +57,27 @@ export async function prepareDocument(
   );
 
   try {
+    let content = doc.content ?? '';
+    let pages = doc.page_map;
+    // Extracted once: a PDF that already has text (re-embedded after a model change) keeps it, so the offsets of
+    // earlier answers' quotes stay valid.
+    const extract = doc.format === 'pdf' && doc.content === null;
+    if (extract) {
+      const file = await db
+        .selectFrom('document_files')
+        .select('bytes')
+        .where('document_id', '=', documentId)
+        .executeTakeFirstOrThrow();
+      ({ content, pages } = await extractPdf(
+        config.PDF_PARSER_URL,
+        file.bytes,
+        signal,
+        config.PDF_PARSER_TIMEOUT_MS,
+      ));
+    }
     // Indexed and embedded as the chat model reads it; the offsets still point into the stored text. A chunk with
     // nothing visible left is skipped.
-    const chunks = chunkText(doc.content ?? '')
+    const chunks = (pages ? chunkPages(content, pages) : chunkText(content))
       .map((c) => ({ ...c, text: forModel(c.text), headingPath: forModel(c.headingPath) }))
       .filter((c) => !isBlank(c.text));
     if (chunks.length === 0) throw new PrepareError('empty_document');
@@ -94,6 +114,7 @@ export async function prepareDocument(
         .updateTable('documents')
         .set({
           status: 'ready',
+          ...(extract ? { content, page_map: JSON.stringify(pages) } : {}),
           embedding_model: model.embeddingModel,
           error_code: null,
           error_message: null,
@@ -108,15 +129,14 @@ export async function prepareDocument(
     log.info({ documentId, chunks: chunks.length }, 'document ready');
   } catch (err) {
     if (err instanceof StaleJob) return;
-    if (err instanceof ModelError && err.kind === 'aborted' && shutdown.aborted) {
+    if (shutdown.aborted && (err instanceof ModelError ? err.kind === 'aborted' : signal.aborted)) {
       throw new ShutdownAbort();
     }
     // A server that is down, overloaded or stuck: BullMQ runs the job again after a backoff.
-    if (
-      err instanceof ModelError &&
-      (err.kind === 'unavailable' || err.kind === 'timeout') &&
-      !lastAttempt
-    ) {
+    const temporary =
+      err instanceof ParserUnavailable ||
+      (err instanceof ModelError && (err.kind === 'unavailable' || err.kind === 'timeout'));
+    if (temporary && !lastAttempt) {
       log.warn({ documentId, err: err.message }, 'preparation will be retried');
       throw err;
     }
@@ -126,9 +146,14 @@ export async function prepareDocument(
         ? err.kind === 'context'
           ? 'internal_error'
           : err.code
-        : err instanceof PrepareError
+        : err instanceof PrepareError || err instanceof PdfFailure
           ? err.code
-          : 'internal_error';
+          : err instanceof ParserUnavailable
+            ? 'pdf_parser_unavailable'
+            : // Cut off by the job's own time limit while the PDF was being read.
+              signal.aborted
+              ? 'pdf_parse_timeout'
+              : 'internal_error';
     log.warn({ documentId, code, err: (err as Error).message }, 'preparation failed');
     await db
       .updateTable('documents')

@@ -15,6 +15,13 @@ export const ERROR_MESSAGES = {
   context_too_long:
     'The question and its passages are too long for the model, even with fewer passages.',
   max_attempts: 'This was tried several times and kept failing. Try again later.',
+  pdf_encrypted: 'The PDF is protected by a password. Upload a copy without one.',
+  pdf_no_text:
+    'The PDF has no usable text layer; it may be a scan. Reading scanned pages (OCR) is not supported.',
+  pdf_too_many_pages: 'The PDF has more than 100 pages.',
+  pdf_parse_failed: 'The PDF could not be read. It may be damaged.',
+  pdf_parse_timeout: 'Reading the PDF took too long.',
+  pdf_parser_unavailable: 'The PDF parser could not be reached. Try again later.',
   internal_error: 'Something went wrong.',
 } as const;
 

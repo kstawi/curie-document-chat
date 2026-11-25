@@ -72,6 +72,10 @@ const schema = z.object({
   ANSWER_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   PREPARE_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
   HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
+  // The PDF parser service, reached by the worker only.
+  PDF_PARSER_URL: z.url().default('http://127.0.0.1:3100'),
+  // Past the parser's own 30 s limit, for a parser that stops answering at all.
+  PDF_PARSER_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   // How often an open progress stream sends a keep-alive comment and re-reads its message. Well under the 60 s a
   // proxy like nginx waits on a quiet connection.
   STREAM_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),

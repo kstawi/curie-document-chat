@@ -8,10 +8,20 @@ import type { DocumentsTable } from '../db.js';
 import { HttpError } from '../errors.js';
 import { withIdempotencyKey } from '../idempotency.js';
 import { checkBackPressure, enqueue, jobId, queueUnavailable } from '../queue.js';
-import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../text/decode.js';
+import { MAX_PDF_BYTES } from '../pdf/limits.js';
+import { cleanTitle, decodeUpload, isPdf, looksLikeMarkdown } from '../text/decode.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
-const LASTING_FAILURES = new Set(['empty_document', 'too_many_passages']);
+// The same file would fail the same way again. A PDF that could not be read or timed out may have hit a crash or a
+// busy machine, so it can be tried again.
+const LASTING_FAILURES = new Set([
+  'empty_document',
+  'too_many_passages',
+  'pdf_encrypted',
+  'pdf_no_text',
+  'pdf_too_many_pages',
+]);
+const TOO_LARGE = 'PDFs can be at most 5 MB, Markdown and text files 1 MB.';
 
 const documentView = z.object({
   id: z.uuid(),
@@ -53,7 +63,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   await app.register(multipart, {
     // Enforced while the upload streams in; nothing beyond the limit is buffered.
     limits: {
-      fileSize: MAX_TEXT_BYTES,
+      fileSize: MAX_PDF_BYTES,
       files: 1,
       fields: 2,
       parts: 3,
@@ -84,11 +94,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
       } catch (err) {
         if (err instanceof HttpError) throw err;
         if (err instanceof app.multipartErrors.RequestFileTooLargeError) {
-          throw new HttpError(
-            413,
-            'file_too_large',
-            `The file is larger than ${MAX_TEXT_BYTES / 1024 / 1024} MB.`,
-          );
+          throw new HttpError(413, 'file_too_large', TOO_LARGE);
         }
         if (err instanceof app.multipartErrors.InvalidMultipartContentTypeError) {
           throw new HttpError(415, 'unsupported_type', 'Send the document as multipart form data.');
@@ -103,7 +109,11 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         }
         throw err;
       }
-      const text = decodeUpload(bytes);
+      const pdf = isPdf(bytes);
+      if (!pdf && bytes.length > MAX_TEXT_BYTES)
+        throw new HttpError(413, 'file_too_large', TOO_LARGE);
+      // A PDF's text comes later, from the parser; its original is kept for that.
+      const text = pdf ? null : decodeUpload(bytes);
       const titleField = file.fields.title;
       const givenTitle =
         titleField && 'value' in titleField ? String(titleField.value) : file.filename;
@@ -119,9 +129,19 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         const doc = await db.transaction().execute(async (trx) => {
           const row = await trx
             .insertInto('documents')
-            .values({ title, format: looksLikeMarkdown(text) ? 'markdown' : 'text', content: text })
+            .values({
+              title,
+              format: text === null ? 'pdf' : looksLikeMarkdown(text) ? 'markdown' : 'text',
+              content: text,
+            })
             .returning(columns)
             .executeTakeFirstOrThrow();
+          if (pdf) {
+            await trx
+              .insertInto('document_files')
+              .values({ document_id: row.id, bytes: Buffer.from(bytes) })
+              .execute();
+          }
           await claim.record(trx, 202, toView(row));
           return row;
         });
@@ -168,7 +188,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             throw new HttpError(
               409,
               'not_retryable',
-              'This document has no text or splits into too many passages, so it would fail again. Upload a different file.',
+              'This document would fail the same way again (no text, too many passages or pages, or a password). Upload a different file.',
             );
           }
           const otherModel = doc.status === 'ready' && doc.embedding_model !== embeddingModel;
@@ -271,18 +291,32 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
       schema: {
         params: idParams,
         response: {
-          200: z.object({ id: z.uuid(), format: documentView.shape.format, content: z.string() }),
+          200: z.object({
+            id: z.uuid(),
+            format: documentView.shape.format,
+            content: z.string(),
+            // PDFs only: where each page starts and ends in `content`.
+            pages: z
+              .array(
+                z.object({
+                  page: z.number().int(),
+                  start: z.number().int(),
+                  end: z.number().int(),
+                }),
+              )
+              .nullable(),
+          }),
         },
       },
     },
     async (request) => {
       const doc = await db
         .selectFrom('documents')
-        .select(['id', 'format', 'content'])
+        .select(['id', 'format', 'content', 'page_map'])
         .where('id', '=', request.params.id)
         .executeTakeFirst();
       if (!doc) throw new HttpError(404, 'not_found', 'No document with that id.');
-      return { id: doc.id, format: doc.format, content: doc.content ?? '' };
+      return { id: doc.id, format: doc.format, content: doc.content ?? '', pages: doc.page_map };
     },
   );
 };

@@ -222,3 +222,26 @@ what no job reports: the sweeper failing or requeueing a lost answer, or events 
 Shutting down ends open streams first, since they would keep the server from closing; a stream still on its first
 read when that starts gets a 503. Open streams have no cap of their own yet; each costs one row read per change
 and per heartbeat.
+
+## Step 6: PDF
+
+**Isolation.** PDFs are read by their own service on a network shared with the worker alone: no internet, no
+database, Redis, model or setting beyond its own (checked from inside the container). Each file gets a child process
+with a 256 MB heap, killed at 30 s, so a hostile or huge file takes down only that process. The parser is pdf.js 6.5,
+whose build no longer turns anything in a file into code (checked: no `eval` or `new Function`), the path behind
+CVE-2024-4367. The worker treats its reply as untrusted: capped at 8 MB, shape-checked, NUL dropped.
+
+**Reading order.** pdf.js returns text in drawing order, which mixes the two columns of a paper. A page whose rows
+mostly leave an empty band in the middle is read as two columns, left before right, with lines across the page kept
+in place. Lines repeated at the top or bottom of most pages (running heads, page numbers) are dropped from the
+stored text; I chose both rules. Paragraph breaks come from vertical gaps, and an accent drawn as its own glyph is
+joined to its letter.
+
+**Pages.** The stored text is the pages joined by blank lines, with a page map. Passages never cross a page and are
+labelled with it; a quote carries its start and end page, and one across a page break is labelled "pages 1–2". Quote
+matching now decomposes each character (NFKD) and joins words hyphenated at line ends, on both sides of the match.
+
+**Originals and failures.** The uploaded file is kept in its own table, never served, and read once: re-preparing a
+ready PDF for another embedding model keeps its text, so earlier quotes' offsets hold. Encrypted files, files with no
+text layer (scans; OCR is the next step) and files over 100 pages fail for good. A read that failed or timed out can
+be tried again, and a parser that is down is retried with the job.

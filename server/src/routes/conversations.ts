@@ -18,6 +18,9 @@ const quoteView = z.object({
   end: z.number().int(),
   line: z.number().int(),
   section: z.string(),
+  // PDFs only.
+  startPage: z.number().int().optional(),
+  endPage: z.number().int().optional(),
 });
 
 const turnView = z.object({

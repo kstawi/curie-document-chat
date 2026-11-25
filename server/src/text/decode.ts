@@ -5,16 +5,12 @@ const UTF8_BOM = [0xef, 0xbb, 0xbf];
 
 const startsWith = (bytes: Uint8Array, prefix: number[]) => prefix.every((b, i) => bytes[i] === b);
 
-// Turns an uploaded file into the stored text. The type comes from the bytes, never from the file name or the
-// Content-Type the client sent. Line endings become LF; nothing else is changed, so offsets match what was sent.
+// The type comes from the bytes, never from the file name or the Content-Type the client sent.
+export const isPdf = (bytes: Uint8Array) => startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]); // "%PDF-"
+
+// Turns an uploaded Markdown or text file into the stored text. Line endings become LF; nothing else is changed, so
+// offsets match what was sent.
 export function decodeUpload(bytes: Uint8Array): string {
-  if (startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) {
-    throw new HttpError(
-      415,
-      'unsupported_type',
-      'PDF upload is not supported yet. Send Markdown or plain text.',
-    );
-  }
   if (startsWith(bytes, [0xff, 0xfe]) || startsWith(bytes, [0xfe, 0xff])) {
     throw new HttpError(400, 'invalid_encoding', 'The file is UTF-16. Send it as UTF-8.');
   }

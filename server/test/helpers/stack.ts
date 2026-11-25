@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { buildApp } from '../../src/app.js';
@@ -8,18 +9,26 @@ import { createAnswerEvents } from '../../src/events.js';
 import type { JobContext, JobDeps } from '../../src/jobs/deps.js';
 import { createWorkers } from '../../src/jobs/workers.js';
 import { createModel } from '../../src/model.js';
+import { createPdfParser } from '../../src/pdf/server.js';
 import { createQueues, modelStatusKey } from '../../src/queue.js';
 import { FakeModel } from './fake-model.js';
 
-// The API, both job handlers and a fake model server, wired as in production but in one process. Each stack gets
-// its own queue prefix, so test files never see each other's jobs.
+// The API, both job handlers, the PDF parser (with its real child processes) and a fake model server, wired as in
+// production but in one process. Each stack gets its own queue prefix, so test files never see each other's jobs.
 // `queueRedisUrl` points only the API's queues somewhere else, e.g. at a closed port to stand in for Redis being down.
 export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?: string) {
   const fake = await new FakeModel().start();
+  const parser = createPdfParser({
+    timeoutMs: 20_000,
+    heapMb: 256,
+    log: pino({ level: 'silent' }),
+  });
+  await new Promise<void>((resolve) => parser.listen(0, '127.0.0.1', resolve));
   const config: Config = {
     ...loadConfig(),
     QUEUE_PREFIX: `test-${randomUUID()}`,
     MODEL_BASE_URL: fake.url,
+    PDF_PARSER_URL: `http://127.0.0.1:${(parser.address() as AddressInfo).port}`,
     MODEL_TIMEOUT_MS: 5_000,
     CHAT_RETRY_TIMEOUT_MS: 5_000,
     REWRITE_TIMEOUT_MS: 5_000,
@@ -65,6 +74,7 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
     db,
     redis,
     fake,
+    parser,
     deps,
     queues,
     answerEvents,
@@ -93,6 +103,8 @@ export async function startStack(overrides: Partial<Config> = {}, queueRedisUrl?
       ]);
       await Promise.allSettled([redis.quit(), db.destroy()]);
       await fake.stop();
+      parser.closeAllConnections();
+      await new Promise((resolve) => parser.close(resolve));
     },
   };
 }

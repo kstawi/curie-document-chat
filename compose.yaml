@@ -144,12 +144,14 @@ services:
       <<: *model-env
       DATABASE_URL: postgres://curie:${POSTGRES_PASSWORD:-curie-local}@postgres:5432/curie
       REDIS_URL: redis://redis:6379
+      PDF_PARSER_URL: http://pdf-parser:3100
     # Lets the worker reach a model server on the host. Docker Desktop provides this name; on Linux this line does.
     extra_hosts: ['host.docker.internal:host-gateway']
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      pdf-parser: { condition: service_healthy }
     init: true
     # On a stop the worker cancels the model call in flight and puts its job back; 20 s bounds the whole shutdown.
     stop_grace_period: 30s
@@ -160,7 +162,43 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     pids_limit: 200
-    networks: [backend]
+    networks: [backend, parser]
+
+  # Reads PDFs, one child process per file, for the worker. It sits on an internal network with the worker only, so
+  # a hostile file meets no internet, database, Redis, model or setting beyond the parser's own.
+  pdf-parser:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: runtime
+    command: ['node', 'dist/pdf-parser.js']
+    environment:
+      HOST: 0.0.0.0
+      PDF_PARSE_TIMEOUT_MS: ${PDF_PARSE_TIMEOUT_MS:-30000}
+    # An extraction's process killed for memory can take the server with it; it comes back by itself, and the worker
+    # sees the failed call as the parser being unavailable for a moment.
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3100/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    init: true
+    user: node
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # The server plus one extraction (a 256 MB heap and the file's buffers).
+    mem_limit: 512m
+    pids_limit: 64
+    networks: [parser]
 
   # Runs only through `docker compose run --rm test`. Uses its own database and Redis index, so tests never touch
   # the data of a running stack.
@@ -182,6 +220,9 @@ services:
 
 networks:
   backend: {}
+  # No route out: the parser and the worker only.
+  parser:
+    internal: true
 
 volumes:
   pgdata: {}

@@ -12,6 +12,8 @@ export interface DocumentsTable {
   title: string;
   format: 'markdown' | 'text' | 'pdf';
   content: string | null;
+  // PDFs only: where each page starts and ends in `content`.
+  page_map: ColumnType<PageSpan[] | null, string | null | undefined, string | null>;
   status: Generated<'queued' | 'processing' | 'ready' | 'failed'>;
   error_code: string | null;
   error_message: string | null;
@@ -21,6 +23,18 @@ export interface DocumentsTable {
   embedding_model: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface PageSpan {
+  page: number;
+  start: number;
+  end: number;
+}
+
+export interface DocumentFilesTable {
+  document_id: string;
+  bytes: Buffer;
+  created_at: Generated<Date>;
 }
 
 export interface ChunksTable {
@@ -47,6 +61,9 @@ export interface Quote {
   end: number;
   line: number;
   section: string;
+  // PDFs only: the pages the quote starts and ends on.
+  startPage?: number;
+  endPage?: number;
 }
 
 // Where a pending answer is; null while it waits in the queue. "rewriting" turns a follow-up into a standalone
@@ -93,6 +110,7 @@ export interface IdempotencyKeysTable {
 
 export interface Database {
   documents: DocumentsTable;
+  document_files: DocumentFilesTable;
   chunks: ChunksTable;
   conversations: ConversationsTable;
   turns: TurnsTable;
