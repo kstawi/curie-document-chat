@@ -108,5 +108,8 @@ That outcome is weak evidence, and it should be read that way:
 - One rewrite changed its question: Gemma turned "Is there a limit on that spending?" into a question about the cost
   of one message, which still counts as found. Hit@k does not judge rewrites.
 
+Shown both rounds and these caveats, I chose on 2026-11-25 to keep hybrid: it is equal on what the model receives,
+and its keyword half is there for exact codes and rare names that one generated document can't test.
+
 What the numbers do say: on this document keyword search adds little and loses on paraphrases, meaning alone is at
 least as good as hybrid, and the rewrite of follow-ups matters more than the choice of method.
