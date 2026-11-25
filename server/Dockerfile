@@ -5,6 +5,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY server/package.json server/
+COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
 
 # Used by `docker compose run --rm test`: lint, type checks and tests over the whole repo.
@@ -21,6 +22,7 @@ FROM base AS runtime
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 COPY server/package.json server/
+COPY web/package.json web/
 # Optional packages left out: pdf.js's native canvas, which draws pages (reading text doesn't need it), BullMQ's
 # native message packing (it falls back to plain JavaScript) and pg's Cloudflare socket support.
 RUN npm ci --omit=dev --omit=optional --workspace server --no-audit --no-fund && npm cache clean --force

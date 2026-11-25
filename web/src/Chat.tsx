@@ -115,7 +115,9 @@ export function Chat({
   }, [messages]);
 
   const pending = messages.some((m) => m.status === 'pending');
-  const ready = document.status === 'ready';
+  // A ready document indexed with another embedding model can't take questions until it's prepared again.
+  const otherModel = document.status === 'ready' && document.retryable;
+  const ready = document.status === 'ready' && !otherModel;
 
   const send = async (action: () => Promise<Message>) => {
     setSending(true);
@@ -185,7 +187,11 @@ export function Chat({
           <p className="muted">
             {ready
               ? 'Ask a question about this document. Answers come only from its text, with the quotes that back them.'
-              : 'Questions can be asked once the document is ready.'}
+              : otherModel
+                ? 'This document was prepared with a different model than the one now set up. Prepare it again from the list to ask questions.'
+                : document.status === 'failed' && !document.retryable
+                  ? 'This document could not be prepared, so it cannot take questions.'
+                  : 'Questions can be asked once the document is ready.'}
           </p>
         )}
         {messages.map((m) => (

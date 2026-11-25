@@ -69,7 +69,8 @@ events.onerror = () => {
 };
 ```
 
-With curl, `curl -N http://127.0.0.1:3000/messages/<id>/events` prints the events as they arrive.
+The web app itself switches to polling `GET /messages/:id` every 2 s once its stream gives up. With curl,
+`curl -N http://127.0.0.1:3000/messages/<id>/events` prints the events as they arrive.
 
 Other responses, as the usual JSON error body before any stream starts: 404 for an unknown message, 400 for a
 malformed id, 503 `shutting_down` (or, for a request that reaches the API after it began closing, Fastify's own

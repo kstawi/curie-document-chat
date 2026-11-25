@@ -16,7 +16,7 @@ Needs Docker with Compose, and a model: LM Studio on this machine, or a key for 
 
 ```sh
 cp .env.example .env   # then pick the model block you want
-docker compose up --build -d --wait api worker
+docker compose up --build -d --wait
 ```
 
 **LM Studio (the default).** About 16 GB of free memory for the chat model. Load both models before starting, with no
@@ -37,7 +37,10 @@ smoothly.
 
 ## Try it
 
-From the repository folder, in a POSIX shell (Git Bash, WSL, macOS or Linux; PowerShell quotes the JSON
+Open http://127.0.0.1:8080 and upload a file, for example `samples/harbor-archive-pilot.md`. Once it reads Ready,
+ask about it on the right; each quote under an answer, when clicked, shows where it sits in the document.
+
+The API itself is on port 3000. From the repository folder, in a POSIX shell (Git Bash, WSL, macOS or Linux; PowerShell quotes the JSON
 differently):
 
 ```sh

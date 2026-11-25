@@ -262,3 +262,28 @@ rewrite of follow-ups mattered more than the method. Every question on a documen
 its embedding, and a follow-up for its rewrite, though neither is used; skipping them is a next step. Running the hosted path found a bug: Gemini leaves out the
 index of the first embedding, and the app had refused every such reply. Search now sends a document that fits the
 budget whole, which the claim in step 2 assumed but the top-20 candidate lists did not guarantee.
+
+## Step 8: web app
+
+**Shape.** One page in three panes: documents on the left, the chosen document's text in the middle, its
+conversation on the right, with the latest conversation open and older ones in a menu (both my choices). React and
+Vite build it into static files, served by an unprivileged nginx that also passes `/api` on to the API, so the
+browser sees one origin. Browsers still send that origin with uploads and questions, and the API refuses origins it
+doesn't know, so Compose now allows the app's two local addresses.
+
+**The text shown is the text quoted.** The middle pane shows the stored text, not the original file, character for
+character. Markdown lines are styled by the same heading and fence rules the server uses for sections, never rendered
+as HTML, and a PDF shows page markers from its page map. Quote offsets point into that text, so clicking a quote
+highlights exactly those characters and scrolls to them.
+
+**Progress and failures.** An answer is followed with `EventSource` through nginx, which passes the stream on
+unbuffered; if the stream gives up, the app polls every 2 s instead. A failed answer offers "Try again" on the
+latest question only, as the API allows. The API now tells the app whether a document can be retried, so a lasting
+failure offers no button, and a document indexed for an older embedding model offers to be prepared again and takes
+no questions until then.
+
+**Look and safety.** Dark, Charis SIL for the document and Inter for the interface, both served from the app with
+their licences; the orange accent marks the main button and quote highlights. Nothing on the page is inline, so the
+Content Security Policy allows only the app's own files, and text from a document or a model is always shown as
+text. Tests cover splitting the text into lines and cutting highlights (`web/test/text.test.ts`); the panes were
+checked by hand in a browser against a stand-in model with canned replies, since no model was loaded.

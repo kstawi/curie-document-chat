@@ -70,7 +70,6 @@ export function DocumentList({
               <bdi className="title">{d.title}</bdi>
               <span className={`status ${d.status}`}>{STATUS[d.status]}</span>
             </button>
-            {d.id === selectedId && d.error && <p className="error small">{d.error.message}</p>}
             {d.id === selectedId && d.retryable && (
               <button
                 className="button small"

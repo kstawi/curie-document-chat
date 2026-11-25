@@ -57,7 +57,12 @@ export function App() {
         error={listError}
         onSelect={select}
         onChanged={(doc) => {
-          setDocuments((list) => [doc, ...list.filter((d) => d.id !== doc.id)]);
+          // A new upload goes first, as the list is newest first; a retried document keeps its place.
+          setDocuments((list) =>
+            list.some((d) => d.id === doc.id)
+              ? list.map((d) => (d.id === doc.id ? doc : d))
+              : [doc, ...list],
+          );
           select(doc.id);
         }}
       />
