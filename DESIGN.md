@@ -155,14 +155,14 @@ Not verified or not done:
 - In the web app, Enter during Safari's input-method conversion sends the question, and narrow screens get no
   layout of their own.
 
-Next, in rough order: deleting documents and conversations; re-preparing every document after a model change
+Next: deleting documents and conversations; re-preparing every document after a model change
 rather than one at a time; skipping the embedding and the rewrite when a document goes in whole; summarising older
 turns in long conversations; OCR for scans; a reranker; full-text search in other languages.
 
 ## Access to documents
 
 I chose team spaces. A document belongs to a space, not a person: members of the space can read it and ask about
-it, and the uploader or a space admin can re-prepare or delete it. Whether members see each other's conversations
+it, and the uploader or a space admin can delete it. Whether members see each other's conversations
 is not decided.
 
 In this code that would mean a `spaces` table, `space_members` with a role, `space_id` on documents and `user_id` on

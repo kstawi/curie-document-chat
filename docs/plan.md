@@ -33,9 +33,9 @@ only variation selectors U+FE0E and U+FE0F are kept for the model. Commit before
 `PASSAGE_TOKEN_BUDGET` far above the default does nothing (document in step 9); check "a short document goes in
 whole" against a document of more than 20 small chunks (step 7). Settled in step 4 (user, 2026-11-24; the line that listed them as open was stale): the 20/20 waiting limits, the 24 h
 key window, and no retry for a document that failed for a lasting reason. Decided with the user on 2026-11-25 for the
-permissions note: team spaces (members read and ask; the uploader or a space admin re-prepares or deletes); whether
+permissions note: team spaces (members read and ask; the uploader or a space admin deletes); whether
 members see each other's conversations is left open. Step 9 so far: the step notes moved to `docs/build-notes.md`,
-DESIGN.md rewritten by the brief's topics (about 1,900 words), `docs/model-check.md` with the script and a byte copy of
+DESIGN.md rewritten by the brief's topics (about 2,150 words with the failure table, over the 2,000 budget), `docs/model-check.md` with the script and a byte copy of
 the brief in `scripts/model-check/`, `docs/ai-use.md` and a cleaned copy of this plan in `docs/plan.md`; DESIGN.md also answers the brief's "full-length
 paper" and "what next" asks. Two fresh reviews and their fixes, committed on `step-9`, not pushed: the user reads
 `docs/ai-use.md` and `docs/plan.md` first. Open with the user: when to prepare the conversation export, and whether
