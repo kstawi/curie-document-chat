@@ -231,7 +231,10 @@ export function Chat({
       try {
         return await api.ask(created.id, text);
       } finally {
-        setConversations((list) => [created, ...list]);
+        // A reread of the names may have listed it already; listed twice, it would share a key.
+        setConversations((list) =>
+          list.some((c) => c.id === created.id) ? list : [created, ...list],
+        );
         setConversationId(created.id);
       }
     });

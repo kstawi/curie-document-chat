@@ -351,7 +351,7 @@ no longer counts as clicking away. A conversation's names are read again wheneve
 answer finished elsewhere shows its new name. In the menu the name is wrapped in Unicode isolation marks (an option
 can't hold `<bdi>`), so a right-to-left name keeps the date after it.
 
-The second review found that my notes and the mistakes log claimed tests for cases no test covered: the case of the
+The second review found that the notes and the mistakes log claimed tests for cases no test covered: the case of the
 model's name arriving while the box was open passed with the first version put back, and switching windows, Escape
 during an input method, the rollback and two of the rereads had no test at all. Each now has one, checked by undoing
 its guard. It also found that the name of a conversation answered while another was on screen stayed stale in the
@@ -359,3 +359,6 @@ menu (it is now read again when the menu gets the focus), that cutting the typed
 silently (the box no longer cuts; the server refuses a name too long, with its reason), that a failed rename with the
 server out of reach left the unsaved name showing (the name it had is put back at once), and that a first question
 with nothing visible in it named the conversation with nothing (it now stays unnamed).
+
+Both reviews noted two costs that stay: the naming call can add up to its timeout (60 s) to a first answer's worst case,
+and after a model outage it is tried again on each attempt of the job, as long as the name is still the question's.
