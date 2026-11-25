@@ -34,15 +34,15 @@ that to work (not tested; this was built on Windows).
 
 **A hosted model.** Uncomment the Gemini block in `.env` and add your key, or point `MODEL_BASE_URL`, `CHAT_MODEL` and
 `EMBEDDING_MODEL` at another OpenAI-compatible service. Gemini's free tier often answers 503 or 429. Answers on
-the hosted path were last run in step 2 of the build; DESIGN.md lists what has changed since.
+the hosted path were last run in step 2 of the build; DESIGN.md says what that leaves unchecked.
 
 ## Try it
 
 Open http://127.0.0.1:8080 and upload a file, for example `samples/harbor-archive-pilot.md`. Once it reads Ready,
 ask about it on the right; each quote under an answer, when clicked, shows where it sits in the document.
 
-The API itself is on port 3000. From the repository folder, in a POSIX shell (Git Bash, WSL, macOS or Linux; PowerShell quotes the JSON
-differently):
+The API itself is on port 3000. From the repository folder, in a POSIX shell (Git Bash, WSL, macOS or Linux;
+PowerShell quotes the JSON differently):
 
 ```sh
 # Upload the sample note. Send the title before the file.
@@ -58,7 +58,8 @@ curl -H "content-type: application/json" -d '{"question":"Who owned the pilot?"}
 curl http://127.0.0.1:3000/messages/<message>
 ```
 
-A completed answer looks like this (with the local model, answers took from about 15 seconds to two and a half minutes in testing):
+A completed answer looks like this (with the local model, answers took from about 15 seconds to two and a half
+minutes in testing):
 
 ```json
 {
@@ -81,10 +82,10 @@ A completed answer looks like this (with the local model, answers took from abou
 `note`, not backed by a quote) or `unsupported` (the model claimed an answer, but none of its quotes could be found,
 so it isn't shown). `scripts/smoke.mjs` runs the sample questions against a running stack.
 
-A failed document or answer can be tried again with `POST /documents/<doc>/retry` or `POST /messages/<message>/retry`
-(only a conversation's latest question). Every POST accepts an `Idempotency-Key` header: a request sent again with
-the same key gets its first response instead of running twice. While 20 uploads or 20 questions already wait, new
-ones get 503 `busy` with `Retry-After`.
+A failed document or answer can be tried again with `POST /documents/<doc>/retry` or
+`POST /messages/<message>/retry` (only a conversation's latest question). Every POST accepts an `Idempotency-Key`
+header: a request sent again with the same key gets its first response instead of running twice, and a different
+request with that key gets 422. While 20 uploads or 20 questions already wait, new ones get 503 `busy` with `Retry-After`.
 
 ## Run the tests
 

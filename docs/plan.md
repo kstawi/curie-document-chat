@@ -36,7 +36,12 @@ key window, and no retry for a document that failed for a lasting reason. Decide
 permissions note: team spaces (members read and ask; the uploader or a space admin re-prepares or deletes); whether
 members see each other's conversations is left open. Step 9 so far: the step notes moved to `docs/build-notes.md`,
 DESIGN.md rewritten by the brief's topics (about 1,900 words), `docs/model-check.md` with the script and a byte copy of
-the brief in `scripts/model-check/`, `docs/ai-use.md` and a cleaned copy of this plan in `docs/plan.md`.
+the brief in `scripts/model-check/`, `docs/ai-use.md` and a cleaned copy of this plan in `docs/plan.md`; DESIGN.md also answers the brief's "full-length
+paper" and "what next" asks. Two fresh reviews and their fixes, committed on `step-9`, not pushed: the user reads
+`docs/ai-use.md` and `docs/plan.md` first. Open with the user: when to prepare the conversation export, and whether
+the plan copy keeps its last section left out. Still to add: the recording link (step 10) and the README's total
+time (step 11). Found in step 9's last test run: the PDF test "finds the columns under a long full-width abstract"
+timed out once at vitest's default 5 s (2.5 s on the re-run); give it a longer timeout in step 11.
 
 **Still needed from the user:** the free-tier limits for gemini-3.5-flash and gemini-embedding-2 from the usage page
 (the probe used about 40 requests; step 2's hosted check runs on the clock); the reviewers' GitHub logins and the

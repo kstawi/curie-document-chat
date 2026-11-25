@@ -1,9 +1,9 @@
 # How a coding agent was used
 
 Almost all of the code, tests and first drafts of the docs were written by Claude Code (the Claude desktop app,
-model Claude Opus 5.5), in one conversation that ran from planning (2026-11-23 and 24) through the build. I set the scope, the
-stack and the rules, answered the agent's questions, and made the product and design choices; each one is recorded
-with its date in the plan. Commits carry a `Co-Authored-By` line for the agent.
+model Claude Opus 5.5), in one conversation that ran from planning (2026-11-23 and 24) through the build. I set the
+scope, the stack and the rules, answered the agent's questions, and made the product and design choices; each one is
+recorded with its date in the plan or the build notes. Commits carry a `Co-Authored-By` line for the agent.
 
 ## How it was directed
 
@@ -23,17 +23,19 @@ with its date in the plan. Commits carry a `Co-Authored-By` line for the agent.
   approach and before calling a step done. Fresh general-purpose subagents as reviewers. The built-in browser, for
   checking the web app by hand. One plugin, ponytail 5.3.3, whose hooks add its rules for the smallest
   complete change at the start of each session and to every subagent, the reviewers included, and track its level
-  in each prompt; there are no other hooks. Two skills were loaded once, at the start of planning: the built-in
+  in each prompt; it also logs each turn's token use to a local file, which the agent doesn't see. There are no
+  other hooks. Two skills were loaded once, at the start of planning: the built-in
   browser's instructions, and the Claude API reference, which the app doesn't use.
 
 ## How the work was checked
 
 - Every step ended with reviews by a fresh agent that hadn't seen the work: up to three per step, each waited for,
   until step 4; from step 5, at most two, each running in its own git worktree alongside the next step. Each review
-  read the whole diff and the code around it; its findings were fixed and every check re-run.
-- `docker compose run --rm test` (lint, type checks and all tests, in containers) before every commit.
-- From step 5, review fixes were checked by undoing them to see their new tests fail (noted in the time log and
-  the mistakes log).
+  read the whole diff and the code around it; its findings were fixed, or listed as not done, and every check re-run.
+- `docker compose run --rm test` (lint, type checks and all tests, in containers) before each push, and usually
+  before each commit.
+- Many review fixes from step 5 on were checked by undoing them to see their new tests fail (noted in the time log
+  and the mistakes log); some were checked by hand.
 - Real-model runs ([model-runs.md](model-runs.md)): through step 4 against criteria written before the run, from
   step 5 as hand checks. A search benchmark whose decision rule was committed before the first run
   ([benchmark.md](benchmark.md)).

@@ -7,11 +7,13 @@ results follow them.
 The script is [`scripts/model-check/model-test.mjs`](../scripts/model-check/model-test.mjs). It reads the brief from
 `scripts/model-check/brief.md`, a byte-for-byte copy: the sample note comes from it, and some runs pad the prompt with
 its paragraphs. The padding only ever went to the local model. The script was copied here after the runs with a new
-header, the brief's new path, Prettier's formatting, one reworded comment and a guard that stops the padding going to
-a hosted service; it has not been run since. Besides what is said here, the notes below differ from the originals
-only in describing the hardware generically, writing "about" for a tilde, saying where Docker was off, and leaving
-out a note on the API key. The raw result files and logs are not included, since they hold the brief's paragraphs and the
-model's full thinking text.
+header, the brief's new path, Prettier's formatting, one reworded and one added comment, and a guard that stops the
+padding going to anything but a local model server; it has not been run against a model since. The notes below are
+the originals edited for the repo: the hardware described generically, "about" for a tilde, "I" for the user, dates
+moved out of headings into this introduction, one table written as prose, symbols spelled out, small wording and
+formatting changes, Docker's state stated where it applied, and two notes left out (on the API key, and on keeping
+these files out of a public repo). The raw result files and logs are not included, since they hold the brief's
+paragraphs and the model's full thinking text.
 
 Machine: a laptop with an integrated GPU that shares its 31 GB of system memory. LM Studio's llama.cpp engine (Vulkan
 build 2.82.0), chat models loaded with a 16,384-token context. Models: `google/gemma-4-26b-a4b-qat` (file

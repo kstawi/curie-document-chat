@@ -1,6 +1,6 @@
 // The model check run before the build, on 2026-11-24, against LM Studio or, with KEY_FILE, a hosted
-// OpenAI-compatible service. Criteria and results: docs/model-check.md. Not part of the app; not re-run since it was
-// copied here.
+// OpenAI-compatible service. Criteria and results: docs/model-check.md. Not part of the app; not run against a model
+// since it was copied here.
 // Usage: node model-test.mjs embed      <embedding-model> <out.json>
 //        node model-test.mjs chat       <chat-model>      <out.json>
 //        node model-test.mjs heldout    <chat-model>      <out.json>
@@ -378,6 +378,7 @@ async function heldoutTest() {
     .split(/\n\n+/)
     .filter((p) => p.length > 120)
     .slice(0, Number(process.env.FILLER ?? 0));
+  refuseRemotePadding(filler);
   const results = [];
   for (const [id, q, expect3, fact] of cases) {
     const expect = two && expect3 === 'document_says_unknown' ? 'answered' : expect3;
@@ -414,12 +415,23 @@ async function heldoutTest() {
   console.log(JSON.stringify(summary));
 }
 
+// Added when the script was copied here: the padding is the brief's own text, which never went to a hosted service.
+function refuseRemotePadding(filler) {
+  if (filler.length > 0 && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(BASE).hostname)) {
+    console.error(
+      'this run pads the prompt with the brief; point BASE_URL at a local model server',
+    );
+    process.exit(2);
+  }
+}
+
 async function longPromptTiming() {
   // Sample passages plus the brief's own paragraphs as filler, to get near a passage budget of about 3,000 tokens.
   const filler = brief
     .split(/\n\n+/)
     .filter((p) => p.length > 200)
     .slice(0, 12);
+  refuseRemotePadding(filler);
   const r = await chat(
     prompt([...passages, ...filler], 'Who owned the pilot?'),
     'answer',
@@ -434,15 +446,6 @@ async function longPromptTiming() {
   };
   writeFileSync(outFile, JSON.stringify(out, null, 2));
   console.log(JSON.stringify(out));
-}
-
-// Added when the script was copied here: the padding is the brief's own text, which never went to a hosted service.
-const padded = mode === 'longprompt' || (mode === 'heldout' && Number(process.env.FILLER ?? 0) > 0);
-if (process.env.KEY_FILE && padded) {
-  console.error(
-    'longprompt, and heldout with FILLER, pad the prompt with the brief; run them on a local model only',
-  );
-  process.exit(2);
 }
 
 if (mode === 'embed') await embedTest();
