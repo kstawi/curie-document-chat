@@ -17,10 +17,12 @@ const DASHES = /[\u2010-\u2015\u2212]/;
 // the joiners here only (forModel keeps them) still agrees with forModel: they go on both sides of the match.
 const MARKS = /[*_`\u200C\u200D]/;
 
-const HYPHENS = /[-‐‑]/;
+// Any dash: between two letters a model may copy an en dash as a hyphen, or the other way round.
+const HYPHENS = /[-\u2010-\u2015\u2212]/;
 const LETTER = /\p{L}/u;
 // What a word ends in once decomposed: a letter, or the accent of one ("ä-" ends in a combining mark).
 const WORD_END = /[\p{L}\p{M}]/u;
+const LOWER = /\p{Ll}/u;
 const SPACE_OR_TAB = /[ \t]/;
 
 // After a hyphen that follows a letter: where the next letter starts if the hyphen joins two parts of a word (a
@@ -41,7 +43,14 @@ function joinedAt(text: string, i: number, to: number): number {
   if (letterAt(j)) return j;
   j = skip(i, true);
   if (text[j] !== '\n' || j >= to) return -1;
-  while (j < to && text[j] === '\n') j = skip(j + 1, true);
+  let breaks = 0;
+  while (j < to && text[j] === '\n') {
+    breaks++;
+    j = skip(j + 1, true);
+  }
+  // Past a blank line (the next column or page) only into a word that carries on in lower case: a hyphen at the end
+  // of a paragraph before "And" is not a broken word.
+  if (breaks > 1 && !(j < to && LOWER.test(String.fromCodePoint(text.codePointAt(j)!)))) return -1;
   return letterAt(j) ? j : -1;
 }
 

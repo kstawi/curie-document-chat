@@ -90,5 +90,5 @@ by searching for `text`.
 
 For a PDF, `GET /documents/:id/content` also returns `pages`: `[{ page, start, end }]`, where each page's text sits in
 `content`; pages are joined by a blank line. A quote from a PDF has `startPage` and `endPage`, and its `section` is
-`page N`, or `pages N–M` when it crosses a page break. Running headers and footers are not in the text, and words
+`page N`, or `pages N–M` when it crosses a page break. A running head or footer appears once, where it is first found, and page numbers not at all; words
 hyphenated at a line end stay as the PDF has them (a quote may still join them).

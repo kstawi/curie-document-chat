@@ -173,7 +173,9 @@ the parser container.
 - The first extraction read the columns in the right order but ran words together where the PDF marks a gap with a
   narrow space of its own ("Withsemantically meaningfulwe"), left accents apart ("Universit¨at"), and broke
   paragraphs mid-sentence beside the small footnote lines. All three were fixed, each with a generated fixture that
-  shows it, and the paper re-read: 11 pages, 44,640 characters, in 2 s.
+  shows it, and the paper re-read: 11 pages, 44,640 characters, in 2 s. After the two reviews' fixes it was read
+  again through the parser image, with networking off and no model: 44,428 characters, the same 37,582 visible
+  ones in the same words, the difference being footnote marks now kept on their lines.
 - Three questions on Gemma: the BERT and SBERT timings (two verified quotes on page 1, both copied by the model
   across hyphenated line ends), the default pooling strategy (one quote, page 3), and the price of the GPUs, which
   came back `not_in_document`.

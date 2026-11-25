@@ -12,7 +12,10 @@ export type PdfResult = { pages: string[] } | { error: PdfFailure };
 // which is what a scanned PDF looks like.
 const MIN_VISIBLE_CHARS = 50;
 
-const fontData = `${join(dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json')), 'standard_fonts')}/`;
+const pdfjsDir = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+const fontData = `${join(pdfjsDir, 'standard_fonts')}/`;
+// Character maps for CJK fonts that rely on built-in ones; pdf.js loads only names on its own fixed list.
+const cMapData = `${join(pdfjsDir, 'cmaps')}/`;
 
 interface Piece {
   str: string;
@@ -40,7 +43,7 @@ interface Line {
   // A piece of a two-column row, or a line across the whole page.
   side: 'left' | 'right' | 'full';
   // In one of the top or bottom rows of its page.
-  edge?: boolean;
+  edge?: 'top' | 'bottom';
 }
 
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[values.length >> 1] ?? 0;
@@ -137,45 +140,46 @@ const segmentText = (s: Segment) => {
   return joinAccents(text.trim());
 };
 
-// A gutter: a vertical band in the middle part of the page that most rows leave empty, with text on both sides, and
-// lines on each side that mostly fill their column. The last check keeps a table of labels and values on a
-// one-column page from being read as two columns.
+// A gutter: a vertical band in the middle part of the page that most of the narrower lines leave empty, with text on
+// both sides. Lines across most of the page (a title, an abstract, a wide table) are left out of that count, so a
+// first page with a long abstract still finds its columns. Each side must also read like running text, with lines
+// that mostly fill it and hold several words, which keeps a table of labels and values from counting as columns.
 function findGutter(segs: Segment[]): number | null {
-  const x = gutterCandidate(segs);
-  if (x === null) return null;
-  const left = Math.min(...segs.map((s) => s.x));
-  const right = Math.max(...segs.map((s) => s.end));
-  const fills = (side: Segment[], span: number) =>
-    median(side.map((s) => s.end - s.x)) >= span * 0.5;
-  return fills(
-    segs.filter((s) => s.end <= x),
-    x - left,
-  ) &&
-    fills(
-      segs.filter((s) => s.x >= x),
-      right - x,
-    )
-    ? x
-    : null;
-}
-
-function gutterCandidate(segs: Segment[]): number | null {
   if (segs.length < 6) return null;
   const left = Math.min(...segs.map((s) => s.x));
   const right = Math.max(...segs.map((s) => s.end));
   const width = right - left;
   if (width <= 0) return null;
+  const narrow = segs.filter((s) => s.end - s.x < width * 0.6);
+  const minSide = Math.max(3, narrow.length * 0.1);
   let best: { x: number; crossing: number } | null = null;
-  for (let x = left + width * 0.3; x <= left + width * 0.7; x += 2) {
-    const crossing = segs.filter((s) => s.x < x && s.end > x).length;
-    const leftSide = segs.filter((s) => s.end <= x).length;
-    const rightSide = segs.filter((s) => s.x >= x).length;
-    // Most rows on both sides, and few lines across: titles and figure captions may cross, columns don't.
-    if (leftSide < segs.length * 0.25 || rightSide < segs.length * 0.25) continue;
-    if (crossing > segs.length * 0.15) continue;
+  // A fixed number of positions, so a page of absurd width costs no more than any other.
+  for (let step = 0; step <= 100; step++) {
+    const x = left + width * (0.3 + 0.4 * (step / 100));
+    const crossing = narrow.filter((s) => s.x < x && s.end > x).length;
+    const leftSide = narrow.filter((s) => s.end <= x).length;
+    const rightSide = narrow.filter((s) => s.x >= x).length;
+    if (leftSide < minSide || rightSide < minSide || crossing > narrow.length * 0.15) continue;
     if (!best || crossing < best.crossing) best = { x, crossing };
   }
-  return best?.x ?? null;
+  if (!best) return null;
+  const gutter = best.x;
+  const runningText = (side: Segment[]) => {
+    const span = Math.max(...side.map((s) => s.end)) - Math.min(...side.map((s) => s.x));
+    const words = side.map(
+      (s) =>
+        s.pieces
+          .map((p) => p.str)
+          .join(' ')
+          .split(/\s+/)
+          .filter(Boolean).length,
+    );
+    return median(side.map((s) => s.end - s.x)) >= span * 0.5 && median(words) >= 5;
+  };
+  return runningText(narrow.filter((s) => s.end <= gutter)) &&
+    runningText(narrow.filter((s) => s.x >= gutter))
+    ? gutter
+    : null;
 }
 
 // Reading order for a page: lines across the page stay where they are; between them, the left column is read top
@@ -212,33 +216,96 @@ function readingOrder(segs: Segment[]): Line[] {
   return out;
 }
 
-// A page number as printed: "12", "Page 12", "12 of 40", "12/40", "- 12 -".
+// A page number as printed: "12", "Page 12", "12 of 40", "12/40", "- 12 -". The first number is the page's.
 const PAGE_NUMBER =
-  /^(?:page\s+)?\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$|^[-\u2013\u2014]\s*\d{1,4}\s*[-\u2013\u2014]$/i;
-const runningKey = (l: Line) => {
-  const text = l.text.replace(/\s+/g, ' ').toLowerCase();
-  return PAGE_NUMBER.test(text) ? 'page number' : text;
+  /^(?:page\s+)?(\d{1,4})(?:\s*(?:of|\/)\s*\d{1,4})?$|^[-\u2013\u2014]\s*(\d{1,4})\s*[-\u2013\u2014]$/i;
+const pageNumberOf = (l: Line) => {
+  const m = PAGE_NUMBER.exec(l.text.trim());
+  return m ? Number(m[1] ?? m[2]) : null;
 };
+// A running line compared as written, except a page reference inside it ("Report, page 3 of 5"), so lines that differ
+// only in another number ("Question 1", "Question 2") stay apart.
+const runningKey = (l: Line) =>
+  l.text
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\bpage \d+( of \d+)?\b/g, 'page #');
 
 // The lines in the two highest and two lowest rows of a page, by where they sit, whatever their reading order: in a
 // two-column page a running head on the right side is read after the left column.
 function markEdges(lines: Line[]) {
   const rows = [...new Set(lines.map((l) => Math.round(l.y)))].sort((a, b) => b - a);
-  const edges = new Set([...rows.slice(0, 2), ...rows.slice(-2)]);
-  for (const l of lines) l.edge = edges.has(Math.round(l.y));
+  const top = new Set(rows.slice(0, 2));
+  const bottom = new Set(rows.slice(-2));
+  for (const l of lines) {
+    const row = Math.round(l.y);
+    l.edge = top.has(row) ? 'top' : bottom.has(row) ? 'bottom' : undefined;
+  }
 }
 
-// Lines that repeat at the top or bottom of most pages (titles, running heads) are layout, not content, and so are
-// page numbers there. Compared as written, so lines that differ only in a number ("Question 1", "Question 2") stay.
-function runningLines(pages: Line[][]): Set<string> {
-  const counts = new Map<string, number>();
-  for (const lines of pages) {
-    for (const k of new Set(lines.filter((l) => l.edge).map(runningKey))) {
-      counts.set(k, (counts.get(k) ?? 0) + 1);
+// Which edge lines are layout, not content: a line repeated at the top or bottom of most pages, or of most odd or most
+// even pages (books and journals alternate their heads); and page numbers, told from other numbers at the edges (a
+// year in a table heading, a total) by keeping in step with the page they are on.
+function layoutLines(pages: Line[][]): {
+  running: Set<string>;
+  isPageNumber: (l: Line, page: number) => boolean;
+} {
+  const counts = new Map<string, [number, number]>();
+  const offsets = new Map<number, number>();
+  pages.forEach((lines, page) => {
+    const edge = lines.filter((l) => l.edge);
+    for (const k of new Set(edge.map(runningKey))) {
+      const c = counts.get(k) ?? [0, 0];
+      c[page % 2]!++;
+      counts.set(k, c);
     }
-  }
-  const needed = Math.max(2, Math.ceil(pages.length / 2));
-  return new Set([...counts].filter(([, n]) => pages.length >= 2 && n >= needed).map(([k]) => k));
+    for (const offset of new Set(
+      edge
+        .map(pageNumberOf)
+        .filter((n) => n !== null)
+        .map((n) => n - page),
+    )) {
+      offsets.set(offset, (offsets.get(offset) ?? 0) + 1);
+    }
+  });
+  const enough = (found: number, of: number) => of >= 2 && found >= Math.max(2, Math.ceil(of / 2));
+  const even = Math.ceil(pages.length / 2);
+  const odd = Math.floor(pages.length / 2);
+  const running = new Set(
+    [...counts]
+      .filter(([, [e, o]]) => enough(e + o, pages.length) || enough(e, even) || enough(o, odd))
+      .map(([k]) => k),
+  );
+  const [offset, seen] = [...offsets].sort((a, b) => b[1] - a[1])[0] ?? [0, 0];
+  const numbered = enough(seen, pages.length);
+  return {
+    running,
+    isPageNumber: (l, page) => numbered && pageNumberOf(l) === page + offset,
+  };
+}
+
+// Drops the layout lines, keeping the first copy of each repeated line (so a table that repeats its heading on every
+// page keeps it once, the author's choice); page numbers all go. A kept copy goes to the start or the end of its page,
+// where it sits, not wherever reading order put it (a head on the right is read after the left column).
+function dropLayout(pages: Line[][]): Line[][] {
+  const { running, isPageNumber } = layoutLines(pages);
+  const kept = new Set<string>();
+  return pages.map((lines, page) => {
+    const top: Line[] = [];
+    const body: Line[] = [];
+    const bottom: Line[] = [];
+    for (const l of lines) {
+      const k = runningKey(l);
+      if (l.edge && isPageNumber(l, page)) continue;
+      if (!l.edge || !running.has(k)) {
+        body.push(l);
+      } else if (!kept.has(k)) {
+        kept.add(k);
+        (l.edge === 'top' ? top : bottom).push(l);
+      }
+    }
+    return [...top, ...body, ...bottom];
+  });
 }
 
 // A page as text: lines joined by line breaks, a blank line where the gap to the next line in the same flow is
@@ -282,6 +349,8 @@ export async function extractPages(data: Uint8Array): Promise<PdfResult> {
     disableFontFace: true,
     useSystemFonts: false,
     standardFontDataUrl: fontData,
+    cMapUrl: cMapData,
+    cMapPacked: true,
     verbosity: 0,
   });
   let pdf;
@@ -311,10 +380,7 @@ export async function extractPages(data: Uint8Array): Promise<PdfResult> {
       pages.push(lines);
       page.cleanup();
     }
-    const running = runningLines(pages);
-    const texts = pages.map((lines) =>
-      pageText(lines.filter((l) => !(l.edge && running.has(runningKey(l))))),
-    );
+    const texts = dropLayout(pages).map(pageText);
     if (!isMostlyText(texts)) return { error: 'pdf_no_text' };
     return { pages: texts };
   } catch {

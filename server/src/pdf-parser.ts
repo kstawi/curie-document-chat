@@ -6,7 +6,8 @@ import { createPdfParser } from './pdf/server.js';
 const config = z
   .object({
     HOST: z.string().default('127.0.0.1'),
-    PORT: z.coerce.number().int().min(1).max(65535).default(3100),
+    // Its own name: a host run reads the same .env as the API, whose PORT is 3000.
+    PDF_PARSER_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
@@ -22,8 +23,8 @@ const server = createPdfParser({
   heapMb: config.PDF_PARSE_HEAP_MB,
   log,
 });
-server.listen(config.PORT, config.HOST, () =>
-  log.info({ port: config.PORT }, 'pdf parser listening'),
+server.listen(config.PDF_PARSER_PORT, config.HOST, () =>
+  log.info({ port: config.PDF_PARSER_PORT }, 'pdf parser listening'),
 );
 
 const stop = () => server.close(() => process.exit(0));

@@ -410,6 +410,19 @@ describe('quote matching on PDF-style text', () => {
     expect(check(content, 'Die Universitä-ten und das exam-ple set')).toBeDefined();
   });
 
+  it('matches an en dash between letters with a hyphen, both ways', () => {
+    const dash = 'The Navier–Stokes model held for every archive.';
+    const hyphen = 'The Navier-Stokes model held for every archive.';
+    expect(check(dash, 'The Navier-Stokes model held for')).toBeDefined();
+    expect(check(hyphen, 'The Navier–Stokes model held for')).toBeDefined();
+  });
+
+  it('does not join a hyphen across a paragraph break into a new sentence', () => {
+    const content = 'We ran the pre-\n\nAnd then the main study began in spring.';
+    expect(check(content, 'We ran the preAnd then the main study')).toBeUndefined();
+    expect(check(content, 'We ran the pre- And then the main study')).toBeDefined();
+  });
+
   it('ends a quote after the whole last character, even outside the basic plane', () => {
     const content = 'The pilot closed with a party and a cake 🎂 for the team.';
     const q = check(content, 'closed with a party and a cake 🎂')!;

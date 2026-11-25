@@ -11,7 +11,12 @@ import {
   plainPdf,
   REPORT,
   twoColumnReport,
+  abstractPage,
+  bookPages,
+  figuresPages,
   journalPages,
+  longTablePage,
+  widePage,
   quizPages,
   tablePage,
   typesetPdf,
@@ -67,10 +72,10 @@ describe('the PDF parser', () => {
     expect(at.every((i) => i >= 0)).toBe(true);
     expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(first).not.toMatch(/Mira Chen owned the limited pilot from\s+Hybrid/);
-    for (const page of pages) {
-      expect(page).not.toContain(REPORT.header);
-      expect(page).not.toMatch(/Page \d/);
-    }
+    // The running head once, where it first appears (the author's choice); page numbers nowhere.
+    expect(pages.join(' ').split(REPORT.header)).toHaveLength(2);
+    expect(first.startsWith(REPORT.header)).toBe(true);
+    for (const page of pages) expect(page).not.toMatch(/Page \d/);
     // Paragraphs come apart at the wider gaps.
     expect(first).toContain('every day.\n\nThe team measured');
   });
@@ -103,12 +108,55 @@ describe('the PDF parser', () => {
 
   it('drops a running head and page numbers wherever they sit on the page', async () => {
     const { body } = await extract(url, await journalPages());
-    for (const page of (body as { pages: string[] }).pages) {
-      expect(page).not.toContain('Journal of Archive Studies');
+    const pages = (body as { pages: string[] }).pages;
+    expect(pages.join(' ').split('Journal of Archive Studies')).toHaveLength(2);
+    expect(pages[0]).toContain('Journal of Archive Studies');
+    for (const page of pages) {
       expect(page).not.toMatch(/^1\d$/m);
       // Nothing but the column break between the two halves of the sentence.
       expect(page).toMatch(/finally\s+recorded in part \d\s+on the eighteenth/);
     }
+  });
+
+  it('finds the columns under a long full-width abstract, and on an unbalanced last page', async () => {
+    for (const bytes of [await abstractPage(12, 30, 30), await abstractPage(0, 40, 12)]) {
+      const page = await pageOf(bytes);
+      const order = [...page.matchAll(/(Left|Right) (\d+) of/g)].map((m) => `${m[1]} ${m[2]}`);
+      const lefts = order.filter((o) => o.startsWith('Left'));
+      // Every left line before any right line, each side in order.
+      expect(order.slice(0, lefts.length)).toEqual(lefts);
+      expect(lefts).toEqual(lefts.map((_, i) => `Left ${i + 1}`));
+    }
+  });
+
+  it('keeps one copy of alternating running heads, a footer with its page number and a repeated table heading', async () => {
+    const { body } = await extract(url, await bookPages());
+    const lines = (body as { pages: string[] }).pages.join('\n\n').split('\n');
+    for (const line of ['Halden Coastal Trust', 'Saltmarsh Field Report', 'Description']) {
+      expect(lines.filter((l) => l === line)).toHaveLength(1);
+    }
+    expect(lines.filter((l) => l.endsWith('of 6'))).toHaveLength(1);
+    for (let n = 1; n <= 6; n++) expect(lines.join('\n')).toContain(`End of part ${n}.`);
+  });
+
+  it('drops page numbers but keeps other numbers in the top and bottom rows', async () => {
+    const { body } = await extract(url, await figuresPages());
+    const pages = (body as { pages: string[] }).pages;
+    expect(pages[1]).toContain('Year\n2024\n2025');
+    expect(pages[1]).toContain('Total\n1250\n1300');
+    for (const page of pages) expect(page).not.toMatch(/^[123]$/m);
+  });
+
+  it('reads a table of longer labels and values row by row', async () => {
+    expect(await pageOf(await longTablePage())).toContain(
+      'Pilot owner and sponsor\nMira Chen, head of the archive team\nCollections searched daily',
+    );
+  });
+
+  it('reads a page of absurd width in normal time', async () => {
+    const started = Date.now();
+    expect(await pageOf(await widePage())).toContain('Right 6 of the column');
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it('keeps lines that differ only in a number, at the top and bottom of every page', async () => {
@@ -234,7 +282,7 @@ describe('PDF documents', () => {
     const { content, pages } = (await s.app.inject(`/documents/${id}/content`)).json();
     expect(pages).toHaveLength(3);
     expect(content.slice(pages[1].start, pages[1].end)).toMatch(/^18 March 2026/);
-    expect(content).not.toContain(REPORT.header);
+    expect(content.split(REPORT.header)).toHaveLength(2);
     const chunks = await s.db
       .selectFrom('chunks')
       .select(['heading_path', 'start_offset', 'end_offset'])
@@ -361,6 +409,34 @@ describe('PDF documents', () => {
       fakeParser.close();
     }
   }
+
+  it("label a read cut off by the job's own time limit as a timeout", async () => {
+    // A parser that never answers, and a job limit well before the worker's own wait for the parser.
+    const stuck = createServer(() => {});
+    const other = await startStack({
+      PDF_PARSER_URL: await listen(stuck),
+      PREPARE_JOB_TIMEOUT_MS: 1_000,
+    });
+    try {
+      const res = await other.app.inject({
+        method: 'POST',
+        url: '/documents',
+        ...multipart({ content: Buffer.from(await twoColumnReport()), filename: 'report.pdf' }),
+      });
+      const docId = res.json().id as string;
+      await vi.waitFor(
+        async () =>
+          expect((await other.app.inject(`/documents/${docId}`)).json().error?.code).toBe(
+            'pdf_parse_timeout',
+          ),
+        { timeout: 5_000 },
+      );
+    } finally {
+      await other.stop();
+      stuck.closeAllConnections();
+      stuck.close();
+    }
+  });
 
   it('count a malformed or oversized parser reply as a failed read', async () => {
     for (const reply of ['{"pages": 5}', `{"pages": ["${'a'.repeat(9 * 1024 * 1024)}"]}`]) {

@@ -181,7 +181,8 @@ The Host check (`localhost` and `127.0.0.1` by default) stops DNS rebinding, whe
 127.0.0.1. The Origin check refuses a POST from any web page not on `ALLOWED_ORIGINS`, which starts empty; step 8 adds
 the web app. A request without an Origin is not a page in a browser, so curl and scripts still work.
 
-**Limits.** JSON bodies stop at 64 KB, uploads at 1 MB while they stream in, and the security headers are set
+**Limits.** JSON bodies stop at 64 KB, uploads while they stream in (since step 6, at 5 MB, with text then held to
+1 MB), and the security headers are set
 directly: a JSON API needs six of them, so I chose that over a package. Uploads and questions are rate-limited (10
 and 30 a minute, retries counted with their kind) by client address. Under Compose every request reaches the API
 from one Docker address, so the limits are totals, which suits one person running it.
@@ -231,11 +232,13 @@ with a 256 MB heap, killed at 30 s, so a hostile or huge file takes down only th
 whose build no longer turns anything in a file into code (checked: no `eval` or `new Function`), the path behind
 CVE-2024-4367. The worker treats its reply as untrusted: capped at 8 MB, shape-checked, NUL dropped.
 
-**Reading order.** pdf.js returns text in drawing order, which mixes the two columns of a paper. A page whose rows
-mostly leave an empty band in the middle, with lines filling each side, is read as two columns, left before right,
-with lines across the page kept in place; a table of labels and values stays row by row. Lines repeated word for
-word in the top or bottom rows of most pages (running heads), and page numbers there, are dropped from the stored
-text, wherever they sit in those rows; I chose both rules. Paragraph breaks come from vertical gaps, a raised
+**Reading order.** pdf.js returns text in drawing order, which mixes the two columns of a paper. A page whose narrower
+lines mostly leave an empty band in the middle, with running text on each side, is read as two columns, left before
+right; lines across the page (a title, an abstract) stay in place, and a table of labels and values stays row by row.
+A line repeated in the top or bottom rows of most pages, or of most odd or even pages (alternating heads), counts as
+a running head even with its page reference changing ("page 3 of 5"); only its first copy is kept, so a table that
+repeats its heading keeps it once. Page numbers there are dropped, told from other numbers by keeping in step with
+the page. I chose these rules, the first copy after a review. Paragraph breaks come from vertical gaps, a raised
 footnote mark stays on its line, and an accent drawn as its own glyph is joined to its letter.
 
 **Pages.** The stored text is the pages joined by blank lines, with a page map. Passages never cross a page and are

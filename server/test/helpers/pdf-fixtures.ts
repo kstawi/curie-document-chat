@@ -264,3 +264,104 @@ export async function encryptedPdf(): Promise<Uint8Array> {
   doc.context.trailerInfo.ID = doc.context.obj([bytes32(0x33), bytes32(0x33)]);
   return doc.save({ useObjectStreams: false });
 }
+
+// Numbered sentences, so a test can check their order: "Left 3 of the column, ..." and so on.
+const sentences = (side: string, n: number) =>
+  Array.from({ length: n }, (_, i) => `${side} ${i + 1} of the column holds a few words here.`);
+
+// A first page as papers have it: a title and a long full-width abstract above two columns.
+export async function abstractPage(fullWidth = 12, left = 30, right = 30): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  const abstract = wrap(REPORT.left.join(' ').repeat(8), 95).slice(0, fullWidth);
+  abstract.forEach((line, i) => page.drawText(line, { x: 72, y: 740 - i * 12, size: 10, font }));
+  const top = 740 - fullWidth * 12 - 24;
+  sentences('Left', left).forEach((line, i) =>
+    page.drawText(line, { x: 72, y: top - i * 12, size: 9, font }),
+  );
+  sentences('Right', right).forEach((line, i) =>
+    page.drawText(line, { x: 320, y: top - i * 12, size: 9, font }),
+  );
+  return doc.save();
+}
+
+// Six pages laid out like a book: no head on page 1, then the left-hand head on even pages and the right-hand head on
+// odd ones; a footer that carries its page number; and a table whose heading row repeats at the top of every page.
+export async function bookPages(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 6; n++) {
+    const page = doc.addPage([612, 792]);
+    if (n > 1 && n % 2 === 0)
+      page.drawText('Halden Coastal Trust', { x: 72, y: 752, size: 9, font });
+    if (n > 1 && n % 2 === 1)
+      page.drawText('Saltmarsh Field Report', { x: 430, y: 752, size: 9, font });
+    ['Date', 'Description', 'Amount'].forEach((cell, i) =>
+      page.drawText(cell, { x: 72 + i * 180, y: 720, size: 11, font }),
+    );
+    // Each page's own text at its edges: body lines repeated on alternate pages would count as running heads.
+    wrap(`Entries for part ${n}. ${REPORT.left[n % 2]!} End of part ${n}.`, 80).forEach((line, i) =>
+      page.drawText(line, { x: 72, y: 690 - i * 14, size: 11, font }),
+    );
+    page.drawText(`Saltmarsh Field Report, page ${n} of 6`, { x: 72, y: 40, size: 9, font });
+  }
+  return doc.save();
+}
+
+// Three pages numbered at the foot, where page 2 also has numbers of its own in its edge rows: years in a table
+// heading at the top and totals at the bottom.
+export async function figuresPages(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 3; n++) {
+    const page = doc.addPage([612, 792]);
+    if (n === 2) {
+      ['Year', '2024', '2025'].forEach((cell, i) =>
+        page.drawText(cell, { x: 72 + i * 150, y: 740, size: 11, font }),
+      );
+      ['Total', '1250', '1300'].forEach((cell, i) =>
+        page.drawText(cell, { x: 72 + i * 150, y: 80, size: 11, font }),
+      );
+    }
+    wrap(`Part ${n}. ${REPORT.left[n % 2]!}`, 80).forEach((line, i) =>
+      page.drawText(line, { x: 72, y: 700 - i * 14, size: 11, font }),
+    );
+    page.drawText(String(n), { x: 300, y: 40, size: 9, font });
+  }
+  return doc.save();
+}
+
+// A table of longer labels and values on a one-column page.
+export async function longTablePage(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  const rows = [
+    ['Pilot owner and sponsor', 'Mira Chen, head of the archive team'],
+    ['Collections searched daily', 'Six archive collections in two rooms'],
+    ['Search kinds compared', 'Keyword, meaning and hybrid search'],
+    ['Decision recorded on', '18 March 2026 by the pilot owner'],
+    ['Next phase planned', 'Twelve collections and costs per question'],
+    ['Measured in the pilot', 'How often the right passage came first'],
+  ];
+  rows.forEach(([label, value], i) => {
+    page.drawText(label!, { x: 72, y: 700 - i * 16, size: 11, font });
+    page.drawText(value!, { x: 290, y: 700 - i * 16, size: 11, font });
+  });
+  return doc.save();
+}
+
+// A page of absurd width, with lines near both ends: enough of them that the column scan runs across the width.
+export async function widePage(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([2e9, 792]);
+  sentences('Left', 6).forEach((line, i) =>
+    page.drawText(line, { x: 72, y: 700 - i * 14, size: 11, font }),
+  );
+  sentences('Right', 6).forEach((line, i) =>
+    page.drawText(line, { x: 1.8e9, y: 700 - i * 14, size: 11, font }),
+  );
+  return doc.save();
+}
