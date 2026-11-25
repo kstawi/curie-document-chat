@@ -1,10 +1,11 @@
 import type { AnswerStage } from '../db.js';
 import { ERROR_MESSAGES, type ErrorCode } from '../errors.js';
 import { ModelError, type ModelAnswer } from '../model.js';
-import { answerPrompt, rewritePrompt, type EarlierTurn } from '../prompt.js';
+import { answerPrompt, namePrompt, rewritePrompt, type EarlierTurn } from '../prompt.js';
 import type { AnswerJob } from '../queue.js';
 import { searchDocument } from '../search.js';
 import { sectionIndex } from '../text/chunk.js';
+import { cleanTitle, NAME_MAX_CHARS } from '../text/decode.js';
 import { verifyQuotes } from '../text/quotes.js';
 import { ShutdownAbort, startHeartbeat, type JobContext, type JobDeps } from './deps.js';
 
@@ -67,6 +68,7 @@ export async function answerQuestion(
         'turns.question',
         'turns.sequence',
         'turns.conversation_id as conversationId',
+        'conversations.title_source as titleSource',
         'documents.id as documentId',
         'documents.status as documentStatus',
         'documents.content',
@@ -92,6 +94,26 @@ export async function answerQuestion(
     const history: EarlierTurn[] = earlier
       .reverse()
       .map((t) => ({ question: t.question, answer: t.answer ?? t.note ?? '' }));
+
+    // The first question names its conversation. Until then, or if this fails, the question is the name; the answer
+    // never depends on it. A name a user gave meanwhile is kept.
+    if (turn.sequence === 1 && turn.titleSource === 'question') {
+      let name = '';
+      try {
+        name = cleanTitle(await model.name(namePrompt(turn.question), signal), '', NAME_MAX_CHARS);
+      } catch (err) {
+        if (!(err instanceof ModelError) || err.kind === 'aborted') throw err;
+        trail.nameFailed = { error: err.message, detail: err.detail };
+      }
+      if (name) {
+        await db
+          .updateTable('conversations')
+          .set({ title: name, title_source: 'model' })
+          .where('id', '=', turn.conversationId)
+          .where('title_source', '=', 'question')
+          .execute();
+      }
+    }
 
     // A follow-up like "and the hybrid one?" finds nothing on its own words, so search uses a standalone version.
     let searchQuestion = turn.question;

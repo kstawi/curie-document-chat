@@ -37,12 +37,26 @@ export function decodeUpload(bytes: Uint8Array): string {
   return text;
 }
 
-// A display title only: hidden characters removed, composed (NFC), on one line, at most 200 code points.
-export function cleanTitle(raw: string | undefined, fallback: string): string {
+// A display title only: hidden characters removed, composed (NFC), on one line, at most `max` code points.
+export function cleanTitle(raw: string | undefined, fallback: string, max = 200): string {
   const cleaned = oneLine(forModel(raw ?? '').normalize('NFC'));
   // Cut by code point, so an emoji at the limit stays whole.
-  const title = [...cleaned].slice(0, 200).join('').trim();
+  const title = [...cleaned].slice(0, max).join('').trim();
   return title || fallback;
+}
+
+// Conversation names: what the model or a user gives, and the first question until then (migration 0006 cuts the
+// older ones the same way).
+export const NAME_MAX_CHARS = 80;
+const QUESTION_NAME_CHARS = 60;
+export function nameFromQuestion(question: string): string {
+  const points = [...question];
+  return points.length <= QUESTION_NAME_CHARS
+    ? question
+    : `${points
+        .slice(0, QUESTION_NAME_CHARS - 1)
+        .join('')
+        .trimEnd()}…`;
 }
 
 export const looksLikeMarkdown = (text: string) => /^#{1,6}[ \t]+\S/m.test(text);

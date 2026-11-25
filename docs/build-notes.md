@@ -319,3 +319,18 @@ in the dialog, or, if the dialog was closed meanwhile, turns the upload button i
 than taking over the screen; a new upload's window takes the focus only if its dialog was still open; and a file
 (not dragged text) dropped outside the drop area is ignored
 rather than opened by the browser in place of the app.
+
+## After step 9: conversation names
+
+Telling conversations apart by their dates was confusing, so on 2026-11-25 I asked for names. I chose that the model
+names a conversation from its first question alone, so no text from the document can reach a name; a "Rename" button
+by the conversation menu; and a menu that shows the name with a short date.
+
+The first question, cut to 60 characters, is the name from the moment it is asked, set in the same transaction as the
+question. The answer job then makes one more model call, with the follow-up rewrite's settings (thinking off), before
+it searches, so the name is in place when the answer is final. Its failure, of any kind but a shutdown, is only noted
+in the debug column: the question stays the name and the answer goes on. Each conversation records where its name
+came from, and the model's name is written only over the question's, so a rename made while the call is out wins, and a
+question answered again is not named twice. A rename is cleaned like a document title and kept to 80 characters.
+Conversations from before get their first question as their name in the migration. The extra call delays a first
+answer by its length (about 2 s for a rewrite on the local model, not yet measured for naming).

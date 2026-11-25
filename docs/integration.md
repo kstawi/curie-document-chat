@@ -9,6 +9,15 @@ every POST accepts, the event stream below, and error replies, which all share o
 
 Uploads are Markdown or text up to 1 MB, or PDF up to 5 MB and 100 pages; the type comes from the file's first bytes.
 
+## Conversation names
+
+A conversation's `title` is `null` until its first question. That question, cut to 60 characters, is its name at
+once; the answer job then asks the model for a short name from the question alone and replaces it, before the answer
+is final. If that call fails, the question stays. `PATCH /conversations/:id` with `{ "title": "..." }` renames a
+conversation: the name is cleaned like a document title, must keep 1 to 80 visible characters (400 `invalid_title`
+otherwise), and is never replaced by the model's. A client that shows names can read the conversation list again after
+sending a first question and when its answer is final.
+
 ## Following an answer
 
 `POST /conversations/:id/messages` returns 202 with the message, still `pending`. From there, either poll

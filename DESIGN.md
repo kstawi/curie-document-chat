@@ -33,9 +33,10 @@ containers run as non-root users on read-only filesystems, and every service has
 - `chunks`: a passage's exact start and end in the stored text, its heading path and text, a generated `tsvector`
   with a GIN index, and an embedding in a `vector` column with no fixed size, so documents embedded by different
   models can sit side by side.
-- `conversations` and `turns`: one `turns` row per question and its answer, with its status, stage, outcome,
-  answer or note, checked quotes, and the model and path that produced it. A partial unique index
-  allows one pending question per conversation.
+- `conversations` and `turns`: a conversation's name and where it came from (its first question, the model or the
+  user); one `turns` row per question and its answer, with its status, stage, outcome, answer or note, checked
+  quotes, and the model and path that produced it. A partial unique index allows one pending question per
+  conversation.
 - `idempotency_keys`: the stored response for each key and route, for 24 hours.
 
 ## Background preparation
@@ -97,6 +98,8 @@ A job runs at most three times, and on the last a failure that would run it agai
 sweeper finds rows whose job was lost and queues them again, at most twice. A user can retry a failed document or
 the latest question; every POST takes an `Idempotency-Key`; while 20 uploads or 20 questions wait, new ones get 503
 `busy`. If Redis is down, the new row is removed and the client gets 503, rather than a row that would never move.
+The call that names a conversation from its first question is the one model call whose failure changes nothing: the
+question stays the name and the answer goes on.
 
 Prompt injection can't be prevented, only contained: the model has no tools and the prompt no secrets, retrieval is
 scoped to one document in code, quotes are checked by the server, and the web app shows all text as text. The worst
@@ -139,13 +142,14 @@ written-up runs instead. Every failure case and how it was checked is in
 
 ## Complete and remaining
 
-Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 254
+Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 262
 server and 15 web tests run in containers by `docker compose run --rm test`.
 
 Not verified or not done:
 
 - It has only run on Windows with Docker Desktop. There is no CI.
-- The web app has only run against a stand-in model with canned replies.
+- The web app has only run against a stand-in model with canned replies, and conversation names only against the
+  fake and stand-in models.
 - Answers on the hosted path last ran on step 2's code; step 7's benchmark ran only Gemini's embeddings and
   follow-up rewrites, and how the app handles Gemini's 429 and 503 replies is untested.
 - Virus scanning isn't built: it would be a ClamAV daemon the worker calls before reading a file, failing the

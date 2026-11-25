@@ -6,11 +6,25 @@ import { ANSWER_STAGES, type TurnsTable } from '../db.js';
 import { ERROR_MESSAGES, HttpError, type ErrorCode } from '../errors.js';
 import { withIdempotencyKey } from '../idempotency.js';
 import { cleanQuestion } from '../text/clean.js';
+import { cleanTitle, NAME_MAX_CHARS, nameFromQuestion } from '../text/decode.js';
 import { checkBackPressure, enqueue, jobId, queueUnavailable } from '../queue.js';
 
 const idParams = z.object({ id: z.uuid() });
 
-const conversationView = z.object({ id: z.uuid(), documentId: z.uuid(), createdAt: z.date() });
+const conversationView = z.object({
+  id: z.uuid(),
+  documentId: z.uuid(),
+  createdAt: z.date(),
+  // The first question until the model names it; null before the first question.
+  title: z.string().nullable(),
+});
+
+const toConversationView = (c: {
+  id: string;
+  document_id: string;
+  created_at: Date;
+  title: string | null;
+}) => ({ id: c.id, documentId: c.document_id, createdAt: c.created_at, title: c.title });
 
 const quoteView = z.object({
   text: z.string(),
@@ -133,9 +147,9 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             const c = await trx
               .insertInto('conversations')
               .values({ document_id: doc.id })
-              .returning(['id', 'document_id', 'created_at'])
+              .returning(['id', 'document_id', 'created_at', 'title'])
               .executeTakeFirstOrThrow();
-            const body = { id: c.id, documentId: c.document_id, createdAt: c.created_at };
+            const body = toConversationView(c);
             await claim.record(trx, 201, body);
             return body;
           });
@@ -162,13 +176,42 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
       if (!doc) throw new HttpError(404, 'not_found', 'No document with that id.');
       const rows = await db
         .selectFrom('conversations')
-        .select(['id', 'document_id', 'created_at'])
+        .select(['id', 'document_id', 'created_at', 'title'])
         .where('document_id', '=', request.params.id)
         .orderBy('created_at', 'desc')
         .execute();
-      return {
-        items: rows.map((c) => ({ id: c.id, documentId: c.document_id, createdAt: c.created_at })),
-      };
+      return { items: rows.map(toConversationView) };
+    },
+  );
+
+  // Renames a conversation. A name given here is never replaced by the model's.
+  app.patch(
+    '/conversations/:id',
+    {
+      schema: {
+        params: idParams,
+        body: z.strictObject({ title: z.string().max(1_000) }),
+        response: { 200: conversationView },
+      },
+    },
+    async (request) => {
+      const title = cleanTitle(request.body.title, '', 1_000);
+      if (!title || [...title].length > NAME_MAX_CHARS) {
+        throw new HttpError(
+          400,
+          'invalid_title',
+          `A conversation name needs 1 to ${NAME_MAX_CHARS} visible characters.`,
+        );
+      }
+      const row = await db
+        .updateTable('conversations')
+        .set({ title, title_source: 'user' })
+        .where('id', '=', request.params.id)
+        .returning(['id', 'document_id', 'created_at', 'title'])
+        .executeTakeFirst();
+      if (!row) throw new HttpError(404, 'not_found', 'No conversation with that id.');
+      request.log.info({ conversationId: row.id }, 'conversation renamed');
+      return toConversationView(row);
     },
   );
 
@@ -213,6 +256,15 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
                 from turns where conversation_id = ${conversation.id}
                 returning ${sql.join(turnColumns.map((c) => sql.ref(c)))}
               `.execute(trx);
+              // The first question is the conversation's name until the answer job asks the model for one.
+              if (rows[0]!.sequence === 1) {
+                await trx
+                  .updateTable('conversations')
+                  .set({ title: nameFromQuestion(request.body.question), title_source: 'question' })
+                  .where('id', '=', conversation.id)
+                  .where('title', 'is', null)
+                  .execute();
+              }
               await claim.record(trx, 202, toTurnView(rows[0]!));
               return rows[0]!;
             });
@@ -227,6 +279,15 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             // pending answer at a time), so it is removed.
             await db.transaction().execute(async (trx) => {
               await trx.deleteFrom('turns').where('id', '=', turn.id).execute();
+              // The name it gave goes with it, unless a user has renamed the conversation since.
+              if (turn.sequence === 1) {
+                await trx
+                  .updateTable('conversations')
+                  .set({ title: null, title_source: null })
+                  .where('id', '=', conversation.id)
+                  .where('title_source', '=', 'question')
+                  .execute();
+              }
               await claim.release(trx);
             });
             throw queueUnavailable();

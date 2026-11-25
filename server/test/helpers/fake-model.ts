@@ -49,6 +49,10 @@ export class FakeModel {
   // message, or a raw body.
   embeddingReplies: { status: number; message?: string; raw?: string }[] = [];
   onChat: (req: ChatRequest) => ChatReply = () => ({ content: '{}' });
+  // Calls that name a conversation, answered apart from the scripted chat replies so they never take one: the next
+  // of `nameReplies`, or a fixed name.
+  nameRequests: ChatRequest[] = [];
+  nameReplies: ChatReply[] = [];
   private server: Server | undefined;
 
   async start() {
@@ -114,8 +118,12 @@ export class FakeModel {
       };
     }
     if (req.url?.endsWith('/chat/completions')) {
-      this.chatRequests.push(body);
-      const r = this.onChat(body);
+      const naming = body.response_format?.json_schema?.name === 'conversation_name';
+      if (naming) this.nameRequests.push(body);
+      else this.chatRequests.push(body);
+      const r = naming
+        ? (this.nameReplies.shift() ?? { content: JSON.stringify({ name: 'Named by the model' }) })
+        : this.onChat(body);
       await r.wait;
       if (r.status && r.status !== 200)
         return { status: r.status, body: r.body ?? { error: { message: 'fail' } } };

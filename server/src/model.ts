@@ -39,6 +39,15 @@ const rewriteReply = z.strictObject({
     .refine((q) => !isBlank(q)),
 });
 
+const nameReply = z.strictObject({
+  name: z
+    .string()
+    .max(1_000)
+    .overwrite(readable)
+    .trim()
+    .refine((n) => !isBlank(n)),
+});
+
 // The answer format tested in step 0 of the build, sent as a strict JSON schema.
 const answerFormat = {
   type: 'json_schema',
@@ -68,6 +77,20 @@ const rewriteFormat = {
       additionalProperties: false,
       required: ['question'],
       properties: { question: { type: 'string' } },
+    },
+  },
+} as const;
+
+const nameFormat = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'conversation_name',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['name'],
+      properties: { name: { type: 'string' } },
     },
   },
 } as const;
@@ -305,6 +328,21 @@ export function createModel(config: Config) {
         { signal, timeout: config.REWRITE_TIMEOUT_MS },
       );
       return [...question].slice(0, REWRITE_MAX_CHARS).join('');
+    },
+
+    // A conversation's name from its first question: the follow-up rewrite's settings, thinking off.
+    async name(messages: ChatCompletionMessageParam[], signal?: AbortSignal): Promise<string> {
+      const { name } = await chat(
+        {
+          messages,
+          max_tokens: config.REWRITE_MAX_TOKENS,
+          response_format: nameFormat,
+          ...thinkingOff,
+        },
+        nameReply,
+        { signal, timeout: config.REWRITE_TIMEOUT_MS },
+      );
+      return name;
     },
 
     // One tiny call to each model, for the worker's start-up check. A rejected request or an unusable vector points

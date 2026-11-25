@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { createDb } from '../src/db.js';
 import { migrateToLatest } from '../src/migrate.js';
+import { nameFromFirstQuestions } from '../src/migrations/0006_conversation_names.js';
+import { nameFromQuestion } from '../src/text/decode.js';
 
 const db = createDb(loadConfig().DATABASE_URL);
 
@@ -92,5 +94,49 @@ describe('migrations', () => {
       where document_id = ${id} and tsv @@ plainto_tsquery('english', 'results keywords')
     `.execute(db);
     expect(hit.rows[0]?.n).toBe(1);
+  });
+
+  it('names older conversations by their first question, cut as new ones are', async () => {
+    const { id: documentId } = await db
+      .insertInto('documents')
+      .values({ title: 'Doc', format: 'text', content: 'Text.', status: 'ready' })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const questions = [
+      'Who owned the pilot?',
+      `${'A long question about the pilot '.repeat(3)}end?`,
+    ];
+    const ids: string[] = [];
+    for (const question of [...questions, null]) {
+      const { id } = await db
+        .insertInto('conversations')
+        .values({ document_id: documentId })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      ids.push(id);
+      if (question) {
+        // Answered, as only one question per conversation may wait.
+        await db
+          .insertInto('turns')
+          .values([
+            { conversation_id: id, sequence: 1, question, status: 'completed' },
+            { conversation_id: id, sequence: 2, question: 'A later one.', status: 'completed' },
+          ])
+          .execute();
+      }
+    }
+    await nameFromFirstQuestions(db);
+    const rows = await db
+      .selectFrom('conversations')
+      .select(['id', 'title', 'title_source'])
+      .where('id', 'in', ids)
+      .execute();
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(ids.map((id) => [byId.get(id)!.title, byId.get(id)!.title_source])).toEqual([
+      [nameFromQuestion(questions[0]!), 'question'],
+      [nameFromQuestion(questions[1]!), 'question'],
+      [null, null],
+    ]);
+    expect(nameFromQuestion(questions[1]!).endsWith('…')).toBe(true);
   });
 });

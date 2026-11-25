@@ -53,6 +53,8 @@ export interface ConversationsTable {
   id: Generated<string>;
   document_id: string;
   created_at: Generated<Date>;
+  title: string | null;
+  title_source: 'question' | 'model' | 'user' | null;
 }
 
 export interface Quote {
