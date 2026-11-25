@@ -29,6 +29,8 @@ local embedding model and with the hosted one a reviewer would use?
 
 ## Decision rule
 
+The rule was committed before the first run; after later rebases the commits' author dates still show that order.
+
 Written on 2026-11-25, before the first run. The measure is hit@3 over all 24 questions, follow-ups after the rewrite,
 counted separately for each embedding model.
 

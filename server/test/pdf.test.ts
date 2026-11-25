@@ -436,7 +436,8 @@ describe('PDF documents', () => {
       stuck.closeAllConnections();
       stuck.close();
     }
-  });
+    // A stack of its own, and up to 5 s of waiting for the job's limit.
+  }, 20_000);
 
   it('count a malformed or oversized parser reply as a failed read', async () => {
     for (const reply of ['{"pages": 5}', `{"pages": ["${'a'.repeat(9 * 1024 * 1024)}"]}`]) {
