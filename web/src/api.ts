@@ -71,7 +71,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       res.status,
       error?.error ?? 'http_error',
-      error?.message ?? `The server answered ${res.status}. Try again shortly.`,
+      error?.message ??
+        // nginx turns away uploads over 6 MB itself, without the API's JSON body.
+        (res.status === 413
+          ? 'The file is too large: PDF up to 5 MB, Markdown or text up to 1 MB.'
+          : `The server answered ${res.status}. Try again shortly.`),
     );
   }
   return body as T;
