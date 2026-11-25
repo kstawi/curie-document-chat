@@ -133,7 +133,7 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     pids_limit: 200
-    networks: [backend]
+    networks: [backend, frontend]
 
   worker:
     build:
@@ -222,7 +222,7 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 64m
     pids_limit: 32
-    networks: [backend]
+    networks: [frontend]
 
   # Runs only through `docker compose run --rm test`. Uses its own database and Redis index, so tests never touch
   # the data of a running stack.
@@ -244,6 +244,8 @@ services:
 
 networks:
   backend: {}
+  # The web app and the API only: nginx has no business with Postgres or Redis.
+  frontend: {}
   # No route out: the parser and the worker only.
   parser:
     internal: true

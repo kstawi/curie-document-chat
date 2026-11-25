@@ -35,6 +35,7 @@ export type Stage = 'rewriting' | 'searching' | 'writing' | 'checking' | 'retryi
 
 export interface Message {
   id: string;
+  conversationId: string;
   sequence: number;
   question: string;
   status: 'pending' | 'completed' | 'failed';
@@ -46,13 +47,23 @@ export interface Message {
   error: { code: string; message: string } | null;
 }
 
+// Two API messages name a route for API clients; the app says where to click instead.
+const WORDING: Record<string, string> = {
+  document_failed:
+    'This document could not be prepared, so it cannot take questions until it is prepared again.',
+  embedding_model_changed:
+    'This document was prepared with a different model than the one now set up. Prepare it again from the list.',
+};
+export const wording = (error: { code: string; message: string }) =>
+  WORDING[error.code] ?? error.message;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
   ) {
-    super(message);
+    super(WORDING[code] ?? message);
   }
 }
 
@@ -123,6 +134,7 @@ export function follow(id: string, update: (message: Message) => void): () => vo
     if (stopped) return;
     try {
       const message = await api.message(id);
+      if (stopped) return;
       update(message);
       if (message.status !== 'pending') return stop();
     } catch {

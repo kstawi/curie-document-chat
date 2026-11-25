@@ -22,34 +22,36 @@ export function DocumentList({
   onChanged: (doc: DocumentInfo) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'upload' | 'retry' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const run = async (action: () => Promise<DocumentInfo>) => {
-    setBusy(true);
+  const run = async (kind: 'upload' | 'retry', action: () => Promise<DocumentInfo>) => {
+    setBusy(kind);
     setProblem(null);
     try {
       onChanged(await action());
     } catch (err) {
       setProblem((err as ApiError).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   return (
     <nav className="pane documents" aria-label="Documents">
       <label className="upload">
-        <span className="button primary">{busy ? 'Uploading' : 'Upload a document'}</span>
+        <span className="button primary">
+          {busy === 'upload' ? 'Uploading' : 'Upload a document'}
+        </span>
         <input
           ref={input}
           type="file"
           accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
-          disabled={busy}
+          disabled={busy !== null}
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = '';
-            if (file) void run(() => api.upload(file));
+            if (file) void run('upload', () => api.upload(file));
           }}
         />
       </label>
@@ -73,8 +75,8 @@ export function DocumentList({
             {d.id === selectedId && d.retryable && (
               <button
                 className="button small"
-                disabled={busy}
-                onClick={() => void run(() => api.retryDocument(d.id))}
+                disabled={busy !== null}
+                onClick={() => void run('retry', () => api.retryDocument(d.id))}
               >
                 {d.status === 'ready' ? 'Prepare again for the current model' : 'Try again'}
               </button>

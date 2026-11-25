@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   follow,
+  wording,
   type ApiError,
   type Conversation,
   type DocumentInfo,
@@ -57,15 +58,22 @@ export function Chat({
   const [problem, setProblem] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const stopFollowing = useRef<(() => void) | null>(null);
+  // The conversation on screen, for replies that arrive after the reader has switched to another.
+  const shown = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
 
   const put = (message: Message) =>
-    setThread((t) => ({
-      ...t,
-      messages: t.messages.some((m) => m.id === message.id)
-        ? t.messages.map((m) => (m.id === message.id ? message : m))
-        : [...t.messages, message],
-    }));
+    setThread((t) =>
+      t.id !== message.conversationId
+        ? t
+        : {
+            ...t,
+            messages: t.messages.some((m) => m.id === message.id)
+              ? t.messages.map((m) => (m.id === message.id ? message : m))
+              : [...t.messages, message],
+          },
+    );
   const track = (id: string) => {
     stopFollowing.current?.();
     stopFollowing.current = follow(id, put);
@@ -91,6 +99,7 @@ export function Chat({
 
   useEffect(() => {
     stopFollowing.current?.();
+    shown.current = conversationId;
     if (!conversationId) return;
     let current = true;
     api
@@ -109,10 +118,13 @@ export function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // Scrolled down when a question is added or its answer arrives, not on every progress step.
+  const latest = messages.at(-1);
+  const scrollKey = `${messages.length}:${latest?.status}`;
   useEffect(() => {
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     end.current?.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' });
-  }, [messages]);
+  }, [scrollKey]);
 
   const pending = messages.some((m) => m.status === 'pending');
   // A ready document indexed with another embedding model can't take questions until it's prepared again.
@@ -125,7 +137,8 @@ export function Chat({
     try {
       const message = await action();
       put(message);
-      track(message.id);
+      // The first question's conversation is followed once it is switched to.
+      if (message.conversationId === shown.current) track(message.id);
       return true;
     } catch (err) {
       setProblem((err as ApiError).message);
@@ -137,7 +150,8 @@ export function Chat({
 
   const ask = async () => {
     const text = question.trim();
-    if (!text) return;
+    // Enter reaches here without the Ask button's checks.
+    if (!text || sending || pending || !ready) return;
     const sent = await send(async () => {
       if (conversationId) return api.ask(conversationId, text);
       // The first question of a conversation creates it; the conversation is switched to once the question is in,
@@ -150,10 +164,21 @@ export function Chat({
         setConversationId(created.id);
       }
     });
-    if (sent) setQuestion('');
+    if (sent) {
+      setQuestion('');
+      // The Ask button turns disabled while the answer is pending, which would drop the focus.
+      input.current?.focus();
+    }
   };
 
-  const latest = messages.at(-1);
+  const announcement =
+    latest?.status === 'pending'
+      ? STAGES[latest.stage ?? 'waiting']
+      : latest?.status === 'completed'
+        ? 'Answer ready.'
+        : latest?.status === 'failed'
+          ? 'The answer failed.'
+          : '';
   return (
     <section className="pane chat" aria-label="Conversation">
       <header className="chat-header">
@@ -176,7 +201,10 @@ export function Chat({
         <button
           className="button small"
           disabled={conversationId === null}
-          onClick={() => setConversationId(null)}
+          onClick={() => {
+            setConversationId(null);
+            input.current?.focus();
+          }}
         >
           New conversation
         </button>
@@ -199,11 +227,7 @@ export function Chat({
             <p className="question">
               <bdi>{m.question}</bdi>
             </p>
-            {m.status === 'pending' && (
-              <p className="stage" role="status">
-                {STAGES[m.stage ?? 'waiting']}
-              </p>
-            )}
+            {m.status === 'pending' && <p className="stage">{STAGES[m.stage ?? 'waiting']}</p>}
             {m.status === 'completed' && m.outcome === 'answered' && (
               <>
                 <p className="answer">
@@ -242,7 +266,7 @@ export function Chat({
             )}
             {m.status === 'failed' && (
               <>
-                <p className="error">{m.error?.message}</p>
+                <p className="error">{m.error && wording(m.error)}</p>
                 {m.id === latest?.id && (
                   <button
                     className="button small"
@@ -258,6 +282,10 @@ export function Chat({
         ))}
         <div ref={end} />
       </div>
+      {/* Mounted from the start, so screen readers announce each change to it. */}
+      <p className="visually-hidden" role="status">
+        {announcement}
+      </p>
 
       <form
         className="ask"
@@ -275,6 +303,7 @@ export function Chat({
           Your question
         </label>
         <textarea
+          ref={input}
           id="question"
           value={question}
           maxLength={2000}
@@ -282,7 +311,7 @@ export function Chat({
           disabled={!ready}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void ask();
             }

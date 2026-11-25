@@ -58,6 +58,18 @@ describe('toLines', () => {
     ).toBe(true);
   });
 
+  it('follows the server on tilde fences and on the 200-character heading cap', () => {
+    const tilde = ['~~~', '# a shell comment', '~~~', '# Heading'].join('\n');
+    expect(toLines(tilde, 'markdown', null).map((l) => l.kind)).toEqual([
+      'fence',
+      'code',
+      'fence',
+      'heading',
+    ]);
+    expect(toLines(`# ${'x'.repeat(198)}`, 'markdown', null)[0]!.kind).toBe('heading');
+    expect(toLines(`# ${'x'.repeat(199)}`, 'markdown', null)[0]!.kind).toBe('text');
+  });
+
   it('marks the first line of each PDF page', () => {
     const content = 'Page one text.\n\nPage two text.';
     const lines = toLines(content, 'pdf', [
@@ -91,5 +103,7 @@ describe('pieces', () => {
       { start: 11, end: 22, marker: false, highlighted: true },
     ]);
     expect(touches(lines[0]!, { start: 30, end: 33 })).toBe(false);
+    // A range that starts on the line break after a line still lights that line.
+    expect(touches(lines[0]!, { start: 10, end: 12 })).toBe(true);
   });
 });

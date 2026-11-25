@@ -61,7 +61,8 @@ for (const path of files(root)) {
   const rel = relative(root, path).replaceAll('\\', '/');
   if (skipFiles.has(rel)) continue;
   const checks = quotesPhrases.has(rel) ? styleChecks : [...phraseChecks, ...styleChecks];
-  const isProse = rel.endsWith('.md') || rel.endsWith('.env.example');
+  // JSX text has no quotes around it, so a .tsx file is read whole.
+  const isProse = rel.endsWith('.md') || rel.endsWith('.env.example') || rel.endsWith('.tsx');
   readFileSync(path, 'utf8')
     .split('\n')
     .forEach((line, i) => {

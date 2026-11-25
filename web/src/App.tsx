@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, type DocumentInfo } from './api';
 import { Chat } from './Chat';
 import { DocumentList } from './DocumentList';
@@ -15,9 +15,13 @@ export function App() {
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [listError, setListError] = useState<string | null>(null);
 
+  // Counts uploads and retries, so a list read that started before one doesn't undo it when it lands.
+  const changes = useRef(0);
   const refresh = useCallback(async () => {
+    const seen = changes.current;
     try {
-      setDocuments(await api.documents());
+      const list = await api.documents();
+      if (seen === changes.current) setDocuments(list);
       setListError(null);
     } catch (err) {
       setListError((err as ApiError).message);
@@ -26,8 +30,9 @@ export function App() {
 
   useEffect(() => {
     let current = true;
+    const seen = changes.current;
     api.documents().then(
-      (list) => current && setDocuments(list),
+      (list) => current && seen === changes.current && setDocuments(list),
       (err: ApiError) => current && setListError(err.message),
     );
     return () => {
@@ -57,6 +62,7 @@ export function App() {
         error={listError}
         onSelect={select}
         onChanged={(doc) => {
+          changes.current++;
           // A new upload goes first, as the list is newest first; a retried document keeps its place.
           setDocuments((list) =>
             list.some((d) => d.id === doc.id)
@@ -66,7 +72,8 @@ export function App() {
           select(doc.id);
         }}
       />
-      <DocumentView document={selected} highlight={highlight} />
+      {/* Keyed, so a failed content read shows only for its own document and is tried again on return. */}
+      <DocumentView key={selected?.id} document={selected} highlight={highlight} />
       {selected ? (
         <Chat key={selected.id} document={selected} onQuote={setHighlight} />
       ) : (
