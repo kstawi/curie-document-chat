@@ -14,16 +14,16 @@ export function DocumentView({
   document,
   highlight,
 }: {
-  document: DocumentInfo | null;
+  document: DocumentInfo;
   highlight: Highlight | null;
 }) {
   const [loaded, setLoaded] = useState<{ id: string; content: DocumentContent } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const ready = document?.status === 'ready';
-  const id = document?.id;
+  const ready = document.status === 'ready';
+  const id = document.id;
 
   useEffect(() => {
-    if (!id || !ready) return;
+    if (!ready) return;
     let current = true;
     api
       .content(id)
@@ -92,24 +92,14 @@ export function DocumentView({
     [content, lines, highlight, firstLit],
   );
 
-  if (!document) {
-    return (
-      <main className="pane reader empty">
-        <p>Upload a document, or choose one from the list, to read it and ask about it.</p>
-      </main>
-    );
-  }
   return (
-    <main className="pane reader" aria-label={document.title}>
-      <h1>
-        <bdi>{document.title}</bdi>
-      </h1>
+    <div className="pane reader">
       {document.status === 'failed' && <p className="error">{document.error?.message}</p>}
       {!ready && document.status !== 'failed' && (
         <p className="muted">{WAITING[document.status]}</p>
       )}
       {problem && <p className="error">{problem}</p>}
       {text}
-    </main>
+    </div>
   );
 }

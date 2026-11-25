@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   api,
   follow,
@@ -74,6 +74,8 @@ export function Chat({
   const shown = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  // Up to four chats share the page, so the question box's id is unique to this one.
+  const questionId = useId();
 
   const put = (message: Message) =>
     setThread((t) =>
@@ -191,7 +193,7 @@ export function Chat({
   };
 
   return (
-    <section className="pane chat" aria-label="Conversation">
+    <section className="pane chat" aria-label={`Conversation about ${document.title}`}>
       <header className="chat-header">
         {conversations.length > 0 && (
           <label className="field">
@@ -227,7 +229,7 @@ export function Chat({
             {ready
               ? 'Ask a question about this document. Answers come only from its text, with the quotes that back them.'
               : otherModel
-                ? 'This document was prepared with a different model than the one now set up. Prepare it again from the list to ask questions.'
+                ? 'This document was prepared with a different model than the one now set up. Prepare it again with the button at the top of this window to ask questions.'
                 : document.status === 'failed' && !document.retryable
                   ? 'This document could not be prepared, so it cannot take questions.'
                   : 'Questions can be asked once the document is ready.'}
@@ -313,15 +315,15 @@ export function Chat({
             {problem}
           </p>
         )}
-        <label className="field-label" htmlFor="question">
+        <label className="field-label" htmlFor={questionId}>
           Your question
         </label>
         <textarea
           ref={input}
-          id="question"
+          id={questionId}
           value={question}
           maxLength={2000}
-          rows={3}
+          rows={2}
           disabled={!ready}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {

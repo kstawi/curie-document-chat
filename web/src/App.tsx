@@ -1,19 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, type DocumentInfo } from './api';
-import { Chat } from './Chat';
 import { DocumentList } from './DocumentList';
-import { DocumentView } from './DocumentView';
+import { DocumentWindow } from './DocumentWindow';
+import { UploadDialog } from './UploadDialog';
+import { closeWindow, openWindow } from './windows';
 
 export interface Highlight {
   start: number;
   end: number;
 }
 
+const FULL = 'Four documents are open. Close one to open another.';
+
 export function App() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const [open, setOpen] = useState<string[]>([]);
+  const [notice, setNotice] = useState('');
+  // Which open window the list last pointed to; the count changes on every click, so a second click points again.
+  const [pointed, setPointed] = useState<{ id: string; count: number } | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  // The open windows for handlers that finish later, such as an upload.
+  const openNow = useRef(open);
+  useEffect(() => {
+    openNow.current = open;
+  }, [open]);
 
   // Counts uploads and retries, so a list read that started before one doesn't undo it when it lands.
   const changes = useRef(0);
@@ -54,37 +68,95 @@ export function App() {
     return () => clearInterval(timer);
   }, [preparing, refresh]);
 
-  const selected = documents.find((d) => d.id === selectedId) ?? null;
-  const select = (id: string) => {
-    setSelectedId(id);
-    setHighlight(null);
+  // An upload goes first, as the list is newest first; a retried document keeps its place.
+  const changed = (doc: DocumentInfo) => {
+    changes.current++;
+    setDocuments((list) =>
+      list.some((d) => d.id === doc.id)
+        ? list.map((d) => (d.id === doc.id ? doc : d))
+        : [doc, ...list],
+    );
   };
+
+  const show = (id: string) => {
+    const next = openWindow(openNow.current, id);
+    if (next.result === 'already-open') setPointed((p) => ({ id, count: (p?.count ?? 0) + 1 }));
+    setNotice(next.result === 'full' ? FULL : '');
+    openNow.current = next.open;
+    setOpen(next.open);
+  };
+
+  const close = (id: string) => {
+    openNow.current = closeWindow(openNow.current, id);
+    setOpen(openNow.current);
+    setNotice('');
+    setPointed((p) => (p?.id === id ? null : p));
+    // The window and its button go, so the focus moves to the document in the list.
+    sidebar.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+  };
+
+  const upload = async (file: File) => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const doc = await api.upload(file);
+      changed(doc);
+      setUploadOpen(false);
+      show(doc.id);
+    } catch (err) {
+      setUploadError((err as ApiError).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const startUpload = () => {
+    setUploadError(null);
+    setUploadOpen(true);
+  };
+
+  const byId = new Map(documents.map((d) => [d.id, d]));
+  const windows = open.flatMap((id) => byId.get(id) ?? []);
 
   return (
     <div className="app">
       <DocumentList
         documents={documents}
-        selectedId={selectedId}
-        error={listError}
-        onSelect={select}
-        onChanged={(doc) => {
-          changes.current++;
-          // A new upload goes first, as the list is newest first; a retried document keeps its place.
-          setDocuments((list) =>
-            list.some((d) => d.id === doc.id)
-              ? list.map((d) => (d.id === doc.id ? doc : d))
-              : [doc, ...list],
-          );
-          select(doc.id);
-        }}
+        open={open}
+        notice={notice}
+        listError={listError}
+        uploading={uploading}
+        listRef={sidebar}
+        onSelect={show}
+        onUpload={startUpload}
       />
-      {/* Keyed, so a failed content read shows only for its own document and is tried again on return. */}
-      <DocumentView key={selected?.id} document={selected} highlight={highlight} />
-      {selected ? (
-        <Chat key={selected.id} document={selected} onQuote={setHighlight} />
-      ) : (
-        <section className="pane chat" aria-label="Conversation" />
-      )}
+      <main className={`workspace count-${windows.length}`} aria-label="Open documents">
+        {windows.length === 0 ? (
+          <div className="empty">
+            <p>Upload a document, or choose one from the list, to read it and ask about it.</p>
+            <button className="button primary large" onClick={startUpload}>
+              {uploading ? 'Uploading' : 'Upload a document'}
+            </button>
+          </div>
+        ) : (
+          windows.map((d) => (
+            <DocumentWindow
+              key={d.id}
+              document={d}
+              pointed={pointed?.id === d.id ? pointed.count : 0}
+              onClose={() => close(d.id)}
+              onChanged={changed}
+            />
+          ))
+        )}
+      </main>
+      <UploadDialog
+        open={uploadOpen}
+        busy={uploading}
+        error={uploadError}
+        onFile={(file) => void upload(file)}
+        onClose={() => setUploadOpen(false)}
+      />
     </div>
   );
 }

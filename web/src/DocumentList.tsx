@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { api, type ApiError, type DocumentInfo } from './api';
+import type { Ref } from 'react';
+import type { DocumentInfo } from './api';
 
 const STATUS: Record<DocumentInfo['status'], string> = {
   queued: 'Waiting',
@@ -8,89 +8,62 @@ const STATUS: Record<DocumentInfo['status'], string> = {
   failed: 'Failed',
 };
 
+// The sidebar: the documents to open, then the upload button, in a section of its own at the bottom.
 export function DocumentList({
   documents,
-  selectedId,
-  error,
+  open,
+  notice,
+  listError,
+  uploading,
+  listRef,
   onSelect,
-  onChanged,
+  onUpload,
 }: {
   documents: DocumentInfo[];
-  selectedId: string | null;
-  error: string | null;
+  open: string[];
+  notice: string;
+  listError: string | null;
+  uploading: boolean;
+  listRef: Ref<HTMLElement>;
   onSelect: (id: string) => void;
-  onChanged: (doc: DocumentInfo) => void;
+  onUpload: () => void;
 }) {
-  const input = useRef<HTMLInputElement>(null);
-  const selected = useRef<HTMLButtonElement>(null);
-  const [busy, setBusy] = useState<'upload' | 'retry' | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const run = async (kind: 'upload' | 'retry', action: () => Promise<DocumentInfo>) => {
-    setBusy(kind);
-    setProblem(null);
-    try {
-      onChanged(await action());
-    } catch (err) {
-      setProblem((err as ApiError).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
-    <nav className="pane documents" aria-label="Documents">
-      <label className="upload">
-        <span className="button primary">
-          {busy === 'upload' ? 'Uploading' : 'Upload a document'}
-        </span>
-        <input
-          ref={input}
-          type="file"
-          accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
-          disabled={busy !== null}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) void run('upload', () => api.upload(file));
-          }}
-        />
-      </label>
-      <p className="hint">Markdown or text up to 1 MB, PDF up to 5 MB and 100 pages.</p>
-      {(problem ?? error) && (
-        <p className="error" role="alert">
-          {problem ?? error}
+    <nav ref={listRef} className="sidebar" aria-label="Documents">
+      <div className="sidebar-list">
+        {listError && (
+          <p className="error" role="alert">
+            {listError}
+          </p>
+        )}
+        {/* Mounted from the start, so screen readers announce the note when it appears. */}
+        <p className="notice" role="status">
+          {notice}
         </p>
-      )}
-      <ul>
-        {documents.map((d) => (
-          <li key={d.id}>
-            <button
-              ref={d.id === selectedId ? selected : undefined}
-              className={`document${d.id === selectedId ? ' selected' : ''}`}
-              aria-current={d.id === selectedId ? 'true' : undefined}
-              onClick={() => onSelect(d.id)}
-            >
-              <bdi className="title">{d.title}</bdi>
-              <span className={`status ${d.status}`}>{STATUS[d.status]}</span>
-            </button>
-            {d.id === selectedId && d.retryable && (
-              <button
-                className="button small"
-                disabled={busy !== null}
-                onClick={() =>
-                  // The button goes once the retry is in, so the focus moves to its document.
-                  void run('retry', () => api.retryDocument(d.id)).then(() =>
-                    selected.current?.focus(),
-                  )
-                }
-              >
-                {d.status === 'ready' ? 'Prepare again for the current model' : 'Try again'}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+        <ul>
+          {documents.map((d) => {
+            const isOpen = open.includes(d.id);
+            return (
+              <li key={d.id}>
+                <button
+                  className={`document${isOpen ? ' open' : ''}`}
+                  data-id={d.id}
+                  onClick={() => onSelect(d.id)}
+                >
+                  <bdi className="title">{d.title}</bdi>
+                  <span className={`status ${d.status}`}>{STATUS[d.status]}</span>
+                  {isOpen && <span className="visually-hidden">, open</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <section className="sidebar-upload" aria-label="Upload">
+        <button className="button primary" onClick={onUpload}>
+          {uploading ? 'Uploading' : 'Upload a document'}
+        </button>
+      </section>
     </nav>
   );
 }

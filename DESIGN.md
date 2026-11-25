@@ -132,14 +132,15 @@ prompt as too long. The risky parts live in SQL and the queue (the search statem
 claims, retries, the sweeper, shutdown), where mocks would only test the mocks. Text code (chunking, quote
 matching, hidden characters, PDF reading order on generated files) has unit tests and a fixed-seed random test, and
 a server test checks that the web app's heading rule matches the server's. The web app's own tests cover splitting
-text into lines and highlights; its panes were checked by hand. Real models, slow and not repeatable, were checked in
+text into lines and highlights, which windows are open, and, in a browser-like DOM, that switching documents
+leaves no pane behind; the layout was checked by hand. Real models, slow and not repeatable, were checked in
 written-up runs instead. Every failure case and how it was checked is in
 [docs/edge-cases.md](docs/edge-cases.md).
 
 ## Complete and remaining
 
 Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 254
-server and 6 web tests run in containers by `docker compose run --rm test`.
+server and 10 web tests run in containers by `docker compose run --rm test`.
 
 Not verified or not done:
 

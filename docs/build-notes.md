@@ -289,3 +289,26 @@ Content Security Policy allows only the app's own files, and text from a documen
 text. nginx shares a network with the API alone, away from Postgres and Redis. The layout is for a desktop window;
 narrow screens get no layout of their own yet. Tests cover splitting the text into lines and cutting highlights (`web/test/text.test.ts`); the panes were
 checked by hand in a browser against a stand-in model with canned replies, since no model was loaded.
+
+## After step 9: the layout
+
+Looking at the running app on 2026-11-25, I found that clicking a few documents broke the page. The document pane and
+the chat were siblings with the same React key, so on every switch React kept track of only one of them and the old
+document pane stayed on the page; after a few clicks the grid spread the copies over every column. Two reviews and
+the hand checks had missed it, since each check opened one or two documents.
+
+I chose a new layout at the same time. The left side is only a sidebar for moving between documents, with uploading
+in its own darker section at the bottom; the empty page keeps its text and gains a large upload button. Both
+buttons open a dialog with the limits, a file picker and a drop area, where a refused file's reason shows (a change I
+asked for while it was being built). Up to four
+documents open at once as windows that grow into a 2 by 2 grid (one fills the space, two sit side by side, a third
+goes full width below), each with a close button at the top right. A fifth asks for one to be closed first, clicking
+an open document points to its window, and a new upload opens in a window when one is free. In each window the
+document and its chat split 50/50 along a line that can be dragged or moved with the arrow keys, between 25% and
+75%. The retry buttons moved from the list into each window's header. Nothing is remembered across a reload.
+
+Each window is keyed by its document, and only the window list is keyed, so a pane can't be left behind; a test in a
+browser-like DOM (jsdom 30.1.3, added for it) opens, points to and closes windows and counts the panes, and it found
+three panes where one was expected on the old code. Up to four chats share the page, so the question box's id comes
+from `useId`. Nothing around a window scrolls, so a quote scrolled into view moves only its own pane. The question box
+and the chat's header were made more compact, so a quarter of the screen still leaves room for answers.
