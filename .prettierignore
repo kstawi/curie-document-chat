@@ -6,3 +6,5 @@ server/test/fixtures
 # The sample is the brief's own text, kept byte for byte.
 samples
 docs/runs
+# Written by `npm run openapi -w server`; a test compares it with the routes.
+docs/openapi.json

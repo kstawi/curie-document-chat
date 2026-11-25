@@ -1,7 +1,9 @@
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
+  jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
@@ -96,6 +98,11 @@ export function buildApp(deps: AppDeps) {
   const app = Fastify({ logger, bodyLimit: JSON_BODY_LIMIT }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  // Collects each route's schemas as it is added, so it goes first; `npm run openapi -w server` writes them out.
+  void app.register(swagger, {
+    openapi: { info: { title: 'Curie document chat API', version: '1.0.0' } },
+    transform: jsonSchemaTransform,
+  });
 
   // Clients get a fixed code and a safe message. Unexpected errors are logged as their message only: Fastify's
   // default handler would log the whole error object, and a pg error can carry row data.
@@ -155,31 +162,34 @@ export function buildApp(deps: AppDeps) {
     reply.code(404).send({ error: 'not_found', message: 'No such route.' }),
   );
 
-  // Liveness: the process is up and serving. Says nothing about dependencies on purpose. Logged at warn only,
-  // since the container healthcheck calls it every 10 s.
-  app.get(
-    '/health',
-    { logLevel: 'warn', schema: { response: { 200: z.object({ status: z.literal('ok') }) } } },
-    async () => ({ status: 'ok' as const }),
-  );
+  // A plugin, like the routes below, so the description plugin above sees them.
+  void app.register(async (scope) => {
+    // Liveness: the process is up and serving. Says nothing about dependencies on purpose. Logged at warn only,
+    // since the container healthcheck calls it every 10 s.
+    scope.get(
+      '/health',
+      { logLevel: 'warn', schema: { response: { 200: z.object({ status: z.literal('ok') }) } } },
+      async () => ({ status: 'ok' as const }),
+    );
 
-  app.get(
-    '/ready',
-    { schema: { response: { 200: readyBody, 503: readyBody } } },
-    async (_request, reply) => {
-      const [database, redisState, stored] = await Promise.all([
-        check(() => sql`select 1`.execute(db)),
-        check(() => redis.ping()),
-        withTimeout(redis.get(deps.modelStatusKey)).catch(() => null),
-      ]);
-      const ready = database === 'ok' && redisState === 'ok';
-      return reply.code(ready ? 200 : 503).send({
-        status: ready ? 'ready' : 'not_ready',
-        checks: { database, redis: redisState },
-        model: parseModelCheck(stored),
-      });
-    },
-  );
+    scope.get(
+      '/ready',
+      { schema: { response: { 200: readyBody, 503: readyBody } } },
+      async (_request, reply) => {
+        const [database, redisState, stored] = await Promise.all([
+          check(() => sql`select 1`.execute(db)),
+          check(() => redis.ping()),
+          withTimeout(redis.get(deps.modelStatusKey)).catch(() => null),
+        ]);
+        const ready = database === 'ok' && redisState === 'ok';
+        return reply.code(ready ? 200 : 503).send({
+          status: ready ? 'ready' : 'not_ready',
+          checks: { database, redis: redisState },
+          model: parseModelCheck(stored),
+        });
+      },
+    );
+  });
 
   void app.register(documentRoutes, deps);
   void app.register(conversationRoutes, deps);

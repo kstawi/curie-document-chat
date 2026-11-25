@@ -1,7 +1,11 @@
 # Integrating with the API
 
 What a client needs beyond the route list: how an answer's progress is streamed, and how quotes point into the
-document. The routes and their bodies are in `DESIGN.md` and the Fastify schemas.
+document. The routes, their parameters and their success bodies are in [`openapi.json`](openapi.json), written from
+the routes' own schemas (`npm run openapi -w server`; a test fails when it falls behind). It leaves out what those
+schemas don't declare: the upload's multipart body (a `title` field, then the `file`), the `Idempotency-Key` header
+every POST accepts, the event stream below, and error replies, which all share one body,
+`{ "error": "<code>", "message": "<text>" }`.
 
 Uploads are Markdown or text up to 1 MB, or PDF up to 5 MB and 100 pages; the type comes from the file's first bytes.
 

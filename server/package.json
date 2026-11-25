@@ -10,11 +10,13 @@
     "bench": "tsx --env-file-if-exists=../.env scripts/benchmark.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "timing": "tsx --env-file-if-exists=../.env scripts/search-timing.ts"
+    "timing": "tsx --env-file-if-exists=../.env scripts/search-timing.ts",
+    "openapi": "tsx scripts/openapi.ts"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.9",
     "@fastify/rate-limit": "11.2.2",
+    "@fastify/swagger": "9.9.5",
     "bullmq": "6.7.10",
     "fastify": "5.12.8",
     "fastify-type-provider-zod": "7.0.0",
