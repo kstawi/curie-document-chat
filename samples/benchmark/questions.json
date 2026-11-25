@@ -1,0 +1,173 @@
+{
+  "about": "Search benchmark questions for saltmarsh-field-report.md. `expect` lists text that the right passage contains (each must occur once in the document); a passage counts as found if it overlaps any of them. Follow-ups carry the earlier turn they follow.",
+  "questions": [
+    {
+      "id": "exact-grant",
+      "kind": "exact",
+      "question": "What is the grant number from the Marine Resilience Fund?",
+      "expect": ["under grant MRF-2291"]
+    },
+    {
+      "id": "exact-satellite-price",
+      "kind": "exact",
+      "question": "How much does one satellite message cost?",
+      "expect": ["Each satellite message costs 0.18 euros"]
+    },
+    {
+      "id": "exact-field-supervisor",
+      "kind": "exact",
+      "question": "Who is the field supervisor?",
+      "expect": ["The field supervisor, Tomasz Brekke"]
+    },
+    {
+      "id": "exact-uptime-2025",
+      "kind": "exact",
+      "question": "What was the network uptime in 2025?",
+      "expect": ["In 2025 the stations were online for 96.8 percent"]
+    },
+    {
+      "id": "exact-gull-point-2023",
+      "kind": "exact",
+      "question": "Which station had the worst uptime in 2023, and how bad was it?",
+      "expect": ["In 2023 it was\nonline for only 52 percent"]
+    },
+    {
+      "id": "exact-surge-date",
+      "kind": "exact",
+      "question": "What happened on 11 November 2025?",
+      "expect": ["On 11 November 2025 the network gave its most important result"]
+    },
+    {
+      "id": "exact-antenna-height",
+      "kind": "exact",
+      "question": "How high was the Harrow Quay antenna before and after the move?",
+      "expect": ["raising it from\nfour metres to nine"]
+    },
+    {
+      "id": "exact-licence",
+      "kind": "exact",
+      "question": "Under which licence is the data published?",
+      "expect": ["CC BY 4.0, so that anyone can reuse it"]
+    },
+    {
+      "id": "para-turbine-removed",
+      "kind": "paraphrase",
+      "question": "Why was one of the wind generators taken away again?",
+      "expect": ["complained about the noise it\nmade at night"]
+    },
+    {
+      "id": "para-fouling",
+      "kind": "paraphrase",
+      "question": "How did they keep sea creatures from growing over the water measuring instruments?",
+      "expect": ["copper anti-fouling sleeve"]
+    },
+    {
+      "id": "para-injury",
+      "kind": "paraphrase",
+      "question": "What happened when a worker got hurt out on the rocks?",
+      "expect": ["slipped on algae-covered rock"]
+    },
+    {
+      "id": "para-rusted-parts",
+      "kind": "paraphrase",
+      "question": "Which metal parts rusted away, and what took their place?",
+      "expect": ["glass-fibre reinforced plastic, which\ncannot corrode"]
+    },
+    {
+      "id": "para-how-long-kept",
+      "kind": "paraphrase",
+      "question": "For how many years do they hold on to the unprocessed measurements?",
+      "expect": ["Raw ten-minute readings are kept for ten years"]
+    },
+    {
+      "id": "para-false-alarms",
+      "kind": "paraphrase",
+      "question": "How did they cut down the number of wrong warnings about sudden jumps in water level?",
+      "expect": ["False alarms fell to about 22 a month"]
+    },
+    {
+      "id": "para-who-uses-it",
+      "kind": "paraphrase",
+      "question": "Who in the area actually relies on the measurements day to day?",
+      "expect": ["uses the tide and wind readings to decide when boats can cross"]
+    },
+    {
+      "id": "para-no-heating",
+      "kind": "paraphrase",
+      "question": "Why won't they keep the sensors warm in winter?",
+      "expect": ["Heated enclosures\nwere considered and rejected"]
+    },
+    {
+      "id": "para-church-risk",
+      "kind": "paraphrase",
+      "question": "What could go wrong with the receiver that sits in the place of worship?",
+      "expect": ["the lease runs out in 2027"]
+    },
+    {
+      "id": "para-batteries",
+      "kind": "paraphrase",
+      "question": "What kind of energy storage replaced the old one, and why was it worth the price?",
+      "expect": ["lithium iron phosphate packs of 2.4 kilowatt hours"]
+    },
+    {
+      "id": "follow-second-turbine",
+      "kind": "follow-up",
+      "previous": {
+        "question": "Which stations got a wind turbine?",
+        "answer": "Kestrel Head (S-03) and Gull Point (S-07)."
+      },
+      "question": "And how did the one at the second station work out?",
+      "expect": ["covered about 35 percent of the\nstation's energy use"]
+    },
+    {
+      "id": "follow-satellite-cap",
+      "kind": "follow-up",
+      "previous": {
+        "question": "How much does one satellite message cost?",
+        "answer": "Each satellite message costs 0.18 euros."
+      },
+      "question": "Is there a limit on that spending?",
+      "expect": ["spending at 250 euros a month"]
+    },
+    {
+      "id": "follow-after-incident",
+      "kind": "follow-up",
+      "previous": {
+        "question": "When was the safety incident?",
+        "answer": "In March 2025, at the Low Rock station (S-11)."
+      },
+      "question": "What changed afterwards?",
+      "expect": ["a two-person rule applies to every visit"]
+    },
+    {
+      "id": "follow-storage-why",
+      "kind": "follow-up",
+      "previous": {
+        "question": "Where did the data move to in March 2025?",
+        "answer": "From a server in the trust's office to object storage at a cloud provider."
+      },
+      "question": "Why did they do that?",
+      "expect": ["Its disks failed twice in 2024"]
+    },
+    {
+      "id": "follow-drift-fix",
+      "kind": "follow-up",
+      "previous": {
+        "question": "Which sensors drift?",
+        "answer": "Two of the new salinity sensors, by about 0.3 salinity units per quarter."
+      },
+      "question": "How do they plan to deal with it?",
+      "expect": ["calibrate them every month against standard seawater"]
+    },
+    {
+      "id": "follow-new-stations",
+      "kind": "follow-up",
+      "previous": {
+        "question": "What did the board decide on 18 February 2026?",
+        "answer": "To make the network permanent, publish the data under CC BY 4.0, and add stations."
+      },
+      "question": "How many more, and by when?",
+      "expect": ["four more stations will be added by the end of 2027"]
+    }
+  ]
+}

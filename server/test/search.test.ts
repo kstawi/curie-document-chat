@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { createDb } from '../src/db.js';
-import { searchDocument, toVector } from '../src/search.js';
+import { rankPassages, searchDocument, toVector } from '../src/search.js';
 
 const db = createDb(loadConfig().DATABASE_URL);
 let documentId: string;
@@ -88,5 +88,49 @@ describe('searchDocument', () => {
   it('returns the passages in document order, and a short document whole', async () => {
     const all = await searchDocument(db, documentId, 'lighthouse', [1, 0, 0], 4_000);
     expect(all.map(firstWord)).toEqual(['Alpha', 'Beta', 'Gamma', 'Delta']);
+  });
+
+  it('sends a short document whole even when it has more passages than either ranking keeps', async () => {
+    const doc = await db
+      .insertInto('documents')
+      .values({
+        title: 'many',
+        format: 'text',
+        content: '',
+        status: 'ready',
+        embedding_model: 'test',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    try {
+      await db
+        .insertInto('chunks')
+        .values(
+          Array.from({ length: 30 }, (_, ordinal) => ({
+            document_id: doc.id,
+            ordinal,
+            start_offset: ordinal * 40,
+            end_offset: ordinal * 40 + 30,
+            text: `Passage number ${ordinal} of the list.`,
+            embedding: toVector([1, ordinal, 0]),
+          })),
+        )
+        .execute();
+      // No passage has the word, and the vector ranking keeps only its top 20.
+      expect(await searchDocument(db, doc.id, 'zebra', [1, 0, 0], 4_000)).toHaveLength(30);
+    } finally {
+      await db.deleteFrom('documents').where('id', '=', doc.id).execute();
+    }
+  });
+});
+
+describe('rankPassages', () => {
+  it('gives each passage its keyword and meaning ranks next to the fused order', async () => {
+    const ranked = await rankPassages(db, documentId, 'lighthouse', [1, 0, 0]);
+    const byWord = Object.fromEntries(ranked.map((p) => [firstWord(p), p]));
+    expect(byWord.Gamma).toMatchObject({ meaningRank: 1 });
+    expect(byWord.Gamma!.keywordRank).not.toBeNull();
+    expect(byWord.Beta).toMatchObject({ keywordRank: null, meaningRank: 2 });
+    expect(firstWord(ranked[0]!)).toBe('Gamma');
   });
 });
