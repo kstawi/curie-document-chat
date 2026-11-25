@@ -33,7 +33,6 @@ const ISOLATE = String.fromCharCode(0x2068);
 const END_ISOLATE = String.fromCharCode(0x2069);
 const label = (c: Conversation) =>
   `${ISOLATE}${c.title ?? 'New conversation'}${END_ISOLATE} (${when(c.createdAt)})`;
-const NAME_MAX_CHARS = 80;
 
 // What a screen reader hears as an answer the reader is waiting for moves on.
 function progress(m: Message) {
@@ -211,7 +210,11 @@ export function Chat({
       const renamed = await api.rename(id, title);
       setConversations((list) => list.map((c) => (c.id === renamed.id ? renamed : c)));
     } catch (err) {
+      // The name it had, at once, as the server may be out of reach for the reread too.
       setProblem((err as ApiError).message);
+      setConversations((list) =>
+        list.map((c) => (c.id === id ? { ...c, title: from || null } : c)),
+      );
       void refreshNames();
     }
   };
@@ -246,13 +249,8 @@ export function Chat({
             <input
               autoFocus
               value={draft.value}
-              // Cut by character, as the server counts, so emoji are not held to half the length.
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  value: [...e.target.value].slice(0, NAME_MAX_CHARS).join(''),
-                })
-              }
+              // Not cut here: the server counts characters after cleaning, and says when a name is too long.
+              onChange={(e) => setDraft({ ...draft, value: e.target.value })}
               onBlur={() => {
                 // Switching to another window or tab is not clicking away: the box waits, and the focus comes back.
                 if (window.document.hasFocus()) void saveName();
@@ -277,6 +275,8 @@ export function Chat({
               <span>Conversation</span>
               <select
                 value={conversationId ?? ''}
+                // A conversation answered while another was on screen may have its name by now.
+                onFocus={() => void refreshNames()}
                 onChange={(e) => setConversationId(e.target.value || null)}
               >
                 {conversationId === null && <option value="">New conversation</option>}

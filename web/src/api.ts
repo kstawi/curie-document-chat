@@ -33,7 +33,8 @@ export interface Quote {
   endPage?: number;
 }
 
-export type Stage = 'rewriting' | 'searching' | 'writing' | 'checking' | 'retrying' | null;
+export type Stage =
+  'naming' | 'rewriting' | 'searching' | 'writing' | 'checking' | 'retrying' | null;
 
 export interface Message {
   id: string;

@@ -106,6 +106,8 @@ export async function answerQuestion(
         if (!(err instanceof ModelError) || err.kind === 'aborted') throw err;
         trail.nameFailed = { error: err.message, detail: err.detail };
       }
+      if (name && !hasVisible(name))
+        trail.nameFailed = { error: 'the name had nothing visible in it' };
       if (name && hasVisible(name)) {
         await db
           .updateTable('conversations')

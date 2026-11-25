@@ -256,11 +256,13 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
                 from turns where conversation_id = ${conversation.id}
                 returning ${sql.join(turnColumns.map((c) => sql.ref(c)))}
               `.execute(trx);
-              // The first question is the conversation's name until the answer job asks the model for one.
-              if (rows[0]!.sequence === 1) {
+              // The first question is the conversation's name until the answer job asks the model for one; a
+              // question with nothing visible in it leaves the conversation unnamed.
+              const fromQuestion = nameFromQuestion(request.body.question);
+              if (rows[0]!.sequence === 1 && hasVisible(fromQuestion)) {
                 await trx
                   .updateTable('conversations')
-                  .set({ title: nameFromQuestion(request.body.question), title_source: 'question' })
+                  .set({ title: fromQuestion, title_source: 'question' })
                   .where('id', '=', conversation.id)
                   .where('title', 'is', null)
                   .execute();

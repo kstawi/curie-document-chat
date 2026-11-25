@@ -74,7 +74,7 @@ their answers can be incomplete.
 
 ## Answer delivery
 
-A question's POST returns at once as `pending`. `GET /messages/:id/events` streams the stage (waiting, rewriting a
+A question's POST returns at once as `pending`. `GET /messages/:id/events` streams the stage (waiting, naming the conversation, rewriting a
 follow-up, searching, writing, checking quotes, or waiting to try again after a model outage) and then the stored
 answer once, with the id `final`; every 15 seconds it re-reads the row, which catches what no job reports.
 `GET /messages/:id` returns the same row for clients that poll, and the web app falls back to polling when the
@@ -142,8 +142,8 @@ written-up runs instead. Every failure case and how it was checked is in
 
 ## Complete and remaining
 
-Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 264
-server and 17 web tests run in containers by `docker compose run --rm test`.
+Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 265
+server and 21 web tests run in containers by `docker compose run --rm test`.
 
 Not verified or not done:
 

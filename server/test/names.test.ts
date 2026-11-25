@@ -185,6 +185,14 @@ describe('conversation names', () => {
     expect(await title(id)).toBe('Named by the model');
   });
 
+  it('leaves a conversation unnamed when its first question has nothing visible in it', async () => {
+    const id = await newConversation();
+    const before = stack.fake.nameRequests.length;
+    await finished(await ask(id, String.fromCharCode(0x200d)));
+    expect(await title(id)).toBeNull();
+    expect(stack.fake.nameRequests.length).toBe(before);
+  });
+
   it('keeps a name given before the first question, without asking the model', async () => {
     const id = await newConversation();
     expect((await rename(id, 'Named before asking')).statusCode).toBe(200);
