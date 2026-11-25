@@ -1,7 +1,7 @@
 <!-- A copy of the planning document the coding agent worked from, as it stood on 2026-11-25 during step 9. -->
 
 > Cleaned for the repo. "The user" and "you" are the author; "I" is the agent. Left out: the last section (notes for
-> the interview discussion), account and machine details, and the hiring page's address. `CHALLENGE.md` is
+> the interview discussion), account, machine and personal details, and the hiring page's address. `CHALLENGE.md` is
 > `scripts/model-check/brief.md` here, and `step0/` is written up in `docs/model-check.md`. The status paragraph is a
 > running log, written as the work went.
 
@@ -29,7 +29,7 @@ next step on a branch in its own worktree, so `main` only ever holds reviewed st
 reviews and their fixes, live run on Gemma; pushed up to `1cfed56`. Decided with the user 2026-11-25: two-column PDFs
 are reordered by position; running headers and footers are removed from the stored text; one real paper (Sentence-BERT,
 arXiv 1908.10084, CC BY-SA 4.0) may be downloaded for a hand test, outside the repo, read only through the parser;
-only variation selectors U+FE0E and U+FE0F are kept for the model. Commit before switching branches (no stashing). Later on 2026-11-25 the user said to load no AI models until asked (both unloaded), and, after seeing the benchmark's two rounds and caveats, chose to keep hybrid search. After step 6's second review the user chose that a running head or repeated line keeps its first copy (a table that repeats its heading on every page keeps it once); page numbers are all dropped. **Steps 6 and 7 done**, two fresh reviews each and their fixes, pushed up to `eee8d58` (2026-11-25 11:3x); the last fix commits had no fresh reviewer (two-review cap). **Step 8 done**: two fresh reviews and their fixes, pushed up to `0583f99` (2026-11-25 12:3x); the last fix commit had no fresh reviewer (two-review cap). Left from review 2, not fixed: Enter during Safari IME conversion still sends; a question of only invisible characters shows the API's raw validation text; nginx buffers uploads in memory-backed `/tmp` under its 64 MB limit; the dev server's origin is documented in `.env.example`, not fixed. Open with the user: the server applies Markdown heading rules to plain-text documents too (review 2, out of scope). Step 9 on `step-9` (rebased on main, 254 server tests pass): `docs/openapi.json` from the route schemas with a test (`@fastify/swagger` 9.9.5, already in the lockfile as a peer). To fix in step 9: the step 8 edge-cases intro says every row ran on the full stack at 1440 by 900, but the later rows ran without a worker at the pane's size. The dev database holds stand-in vectors and "stand-in answer" conversations, and one copy of the Sentence-BERT paper is indexed as `fake-embed`: wipe or re-prepare before any real-model pass and before the recording. Found by the run: the search sends at most 40 passages, so
+only variation selectors U+FE0E and U+FE0F are kept for the model. Commit before switching branches (no stashing). Later on 2026-11-25 the user said to load no AI models until asked (both unloaded), and, after seeing the benchmark's two rounds and caveats, chose to keep hybrid search. After step 6's second review the user chose that a running head or repeated line keeps its first copy (a table that repeats its heading on every page keeps it once); page numbers are all dropped. **Steps 6 and 7 done**, two fresh reviews each and their fixes, pushed up to `eee8d58` (2026-11-25 11:3x); the last fix commits had no fresh reviewer (two-review cap). **Step 8 done**: two fresh reviews and their fixes, pushed up to `0583f99` (2026-11-25 12:3x); the last fix commit had no fresh reviewer (two-review cap). Left from review 2, not fixed: Enter during Safari IME conversion still sends; a question of only invisible characters shows the API's raw validation text; nginx buffers uploads in memory-backed `/tmp` under its 64 MB limit; the dev server's origin is documented in `.env.example`, not fixed. Open with the user: the server applies Markdown heading rules to plain-text documents too (review 2, out of scope). Step 9 on `step-9` (rebased on main, 254 server tests pass): `docs/openapi.json` from the route schemas with a test (`@fastify/swagger` 9.9.5, already in the lockfile as a peer). Fixed in step 9: the step 8 edge-cases intro now says the Enter row ran without a worker, in a smaller window (the only row checked that way). The dev database holds stand-in vectors and "stand-in answer" conversations, and one copy of the Sentence-BERT paper is indexed as `fake-embed`: wipe or re-prepare before any real-model pass and before the recording. Found by the run: the search sends at most 40 passages, so
 `PASSAGE_TOKEN_BUDGET` far above the default does nothing (document in step 9); check "a short document goes in
 whole" against a document of more than 20 small chunks (step 7). Settled in step 4 (user, 2026-11-24; the line that listed them as open was stale): the 20/20 waiting limits, the 24 h
 key window, and no retry for a document that failed for a lasting reason. Decided with the user on 2026-11-25 for the
@@ -407,7 +407,7 @@ documents, long histories (summarise older turns), per-user cost limits, a reran
 
 0. **Local model test** — done 2026-11-24; criteria in `step0/CRITERIA.md`, results in `step0/RESULTS.md`. Chosen:
    Gemma 4 26B-A4B, thinking on. The quote fallback wasn't needed (every quote verified).
-1. **Repo setup**: local git repo and the private GitHub repo on kstawi (first push here), git identity, `.gitattributes` (`* text=auto eol=lf`, fixtures rule), `.gitignore`
+1. **Repo setup**: local git repo and the private GitHub repo (first push here), git identity, `.gitattributes` (`* text=auto eol=lf`, fixtures rule), `.gitignore`
    (`.env`), `.dockerignore`, `.env.example`, workspaces, TypeScript config, Prettier and ESLint, Compose (postgres,
    redis, networks, hardening per image, `test` service), Fastify health check, first migration, project `CLAUDE.md`
    (with the §12 house style and phrase list), `TIMELOG.md`, the mistakes log.
@@ -486,7 +486,7 @@ grades how they're directed, so the AI-use section stays complete and names this
 - Real numbers (step 0, the benchmark) and real limits. Mistakes come only from the running log of caught mistakes.
   Nothing manufactured: no invented dead ends, staged typos or reshaped commit history. Test hardware described
   generically ("a laptop with an integrated GPU and 32 GB RAM").
-- Tells to avoid (from the author's own writing rules and common AI patterns): tildes on numbers (write "about 30"); every
+- Tells to avoid (from the user's own writing rules and common AI patterns): tildes on numbers (write "about 30"); every
   bullet the same shape and length; abstract phrases ("production-grade", "end to end", "pioneered", "gated by",
   "robust", "seamless", "leverage", "comprehensive", "delve", "empower", "unlock"); summaries that repeat the content;
   emoji or title case in headings; bold everywhere; "Key features" lists; "it's not just X, it's Y"; chains of em

@@ -33,8 +33,8 @@ The containers reach it at `host.docker.internal:1234`. On Linux, LM Studio must
 that to work (not tested; this was built on Windows).
 
 **A hosted model.** Uncomment the Gemini block in `.env` and add your key, or point `MODEL_BASE_URL`, `CHAT_MODEL` and
-`EMBEDDING_MODEL` at another OpenAI-compatible service. Gemini's free tier often answers 503 or 429; a paid key runs
-smoothly.
+`EMBEDDING_MODEL` at another OpenAI-compatible service. Gemini's free tier often answers 503 or 429. Answers on
+the hosted path were last run in step 2 of the build; DESIGN.md lists what has changed since.
 
 ## Try it
 
@@ -58,7 +58,7 @@ curl -H "content-type: application/json" -d '{"question":"Who owned the pilot?"}
 curl http://127.0.0.1:3000/messages/<message>
 ```
 
-A completed answer looks like this (with the local model, answers took about 15 to 65 seconds in testing):
+A completed answer looks like this (with the local model, answers took from about 15 seconds to two and a half minutes in testing):
 
 ```json
 {

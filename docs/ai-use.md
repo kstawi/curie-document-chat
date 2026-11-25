@@ -1,7 +1,7 @@
 # How a coding agent was used
 
 Almost all of the code, tests and first drafts of the docs were written by Claude Code (the Claude desktop app,
-model Claude Opus 5.5), in one session for planning (2026-11-23 and 24) and one for the build. I set the scope, the
+model Claude Opus 5.5), in one conversation that ran from planning (2026-11-23 and 24) through the build. I set the scope, the
 stack and the rules, answered the agent's questions, and made the product and design choices; each one is recorded
 with its date in the plan. Commits carry a `Co-Authored-By` line for the agent.
 
@@ -15,14 +15,16 @@ with its date in the plan. Commits carry a `Co-Authored-By` line for the agent.
   where the file isn't loaded on its own, so the file says to read it at the start of every step.
 - **My global rules**, which apply to every session on my machine. The parts that applied are quoted at the end,
   word for word; `[…]` marks what is left out (GitHub accounts, pull requests, and how replies to me are written).
-- **Notes the agent kept between sessions**, in its memory folder: the plan is the source of truth; the review
-  workflow from step 5; no models loaded after 2026-11-25 until I say so; every staged diff scanned for secrets and
-  personal details before a commit.
+- **Notes the agent kept between sessions**, in its memory folder. The ones about this project: the plan is the
+  source of truth; the review workflow from step 5; no models loaded after 2026-11-25 until I say so; every staged
+  diff scanned for secrets and personal details before a commit. Notes about my machine (running Docker through WSL,
+  for one) are left out.
 - **Tools.** The advisor, a stronger model (Fable) that sees the whole session, consulted before choosing an
   approach and before calling a step done. Fresh general-purpose subagents as reviewers. The built-in browser, for
-  checking the web app by hand. One plugin, ponytail 5.3.3, whose start-of-session hook adds rules for the smallest
-  complete change; it is the only hook. Two skills were loaded, once in each session: the built-in browser's
-  instructions, and the Claude API reference, which the app doesn't use.
+  checking the web app by hand. One plugin, ponytail 5.3.3, whose hooks add its rules for the smallest
+  complete change at the start of each session and to every subagent, the reviewers included, and track its level
+  in each prompt; there are no other hooks. Two skills were loaded once, at the start of planning: the built-in
+  browser's instructions, and the Claude API reference, which the app doesn't use.
 
 ## How the work was checked
 
@@ -30,10 +32,11 @@ with its date in the plan. Commits carry a `Co-Authored-By` line for the agent.
   until step 4; from step 5, at most two, each running in its own git worktree alongside the next step. Each review
   read the whole diff and the code around it; its findings were fixed and every check re-run.
 - `docker compose run --rm test` (lint, type checks and all tests, in containers) before every commit.
-- Most fixes came with a test that was checked to fail with the fix undone; the time log notes these
-  deliberate-break checks.
-- Real-model runs against criteria written before the run ([model-runs.md](model-runs.md)), and a search benchmark
-  whose decision rule was committed before the first run ([benchmark.md](benchmark.md)).
+- From step 5, review fixes were checked by undoing them to see their new tests fail (noted in the time log and
+  the mistakes log).
+- Real-model runs ([model-runs.md](model-runs.md)): through step 4 against criteria written before the run, from
+  step 5 as hand checks. A search benchmark whose decision rule was committed before the first run
+  ([benchmark.md](benchmark.md)).
 - `npm run scan:phrases` ([scripts/phrase-scan.mjs](../scripts/phrase-scan.mjs)) before each commit, for wording that
   reads as generic AI output; the house style it enforces is in CLAUDE.md. Every staged diff was also scanned for
   secrets, emails, local paths and machine details.

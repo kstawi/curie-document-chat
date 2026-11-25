@@ -437,9 +437,10 @@ async function longPromptTiming() {
 }
 
 // Added when the script was copied here: the padding is the brief's own text, which never went to a hosted service.
-if (process.env.KEY_FILE && (mode === 'heldout' || mode === 'longprompt')) {
+const padded = mode === 'longprompt' || (mode === 'heldout' && Number(process.env.FILLER ?? 0) > 0);
+if (process.env.KEY_FILE && padded) {
   console.error(
-    'heldout and longprompt pad the prompt with the brief; run them against a local model only',
+    'longprompt, and heldout with FILLER, pad the prompt with the brief; run them on a local model only',
   );
   process.exit(2);
 }

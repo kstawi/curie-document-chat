@@ -7,11 +7,13 @@ results follow them.
 The script is [`scripts/model-check/model-test.mjs`](../scripts/model-check/model-test.mjs). It reads the brief from
 `scripts/model-check/brief.md`, a byte-for-byte copy: the sample note comes from it, and some runs pad the prompt with
 its paragraphs. The padding only ever went to the local model. The script was copied here after the runs with a new
-header, the brief's new path, Prettier's formatting and a guard that stops the padding going to a hosted service; it
-has not been run since. The raw result files and logs are not included, since they hold the brief's paragraphs and the
+header, the brief's new path, Prettier's formatting, one reworded comment and a guard that stops the padding going to
+a hosted service; it has not been run since. Besides what is said here, the notes below differ from the originals
+only in describing the hardware generically, writing "about" for a tilde, saying where Docker was off, and leaving
+out a note on the API key. The raw result files and logs are not included, since they hold the brief's paragraphs and the
 model's full thinking text.
 
-Machine: a laptop with an integrated GPU that shares its 32 GB of system memory. LM Studio's llama.cpp engine (Vulkan
+Machine: a laptop with an integrated GPU that shares its 31 GB of system memory. LM Studio's llama.cpp engine (Vulkan
 build 2.82.0), chat models loaded with a 16,384-token context. Models: `google/gemma-4-26b-a4b-qat` (file
 `gemma-4-26B-A4B-it-QAT-Q4_0.gguf`, lmstudio-community), `qwen/qwen3.8-27b` (Q4_K_M),
 `text-embedding-nomic-embed-text-v1.5`. Load command: `lms load google/gemma-4-26b-a4b-qat -c 16384 -y`.
@@ -155,8 +157,11 @@ the brief as filler); two-label contract; `max_tokens` 4,096; temperature 0.
   is the primary stop; the timeout is a generous backstop set after timing the full stack. Still to check in step 2:
   that aborting a request stops generation in LM Studio (Gemma loads with one slot, so otherwise the retry would queue
   behind the runaway).
+- The thinking-off retry path and the model's recommended sampling were measured afterwards, in the extra check below.
 
-### Extra check
+### Extra check (Docker Desktop off)
+
+Same 12 questions, filler and two-label contract.
 
 | Run                                                                       | Correct | Runaways | Finished calls             | Notes                                                                                                   |
 | ------------------------------------------------------------------------- | ------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |

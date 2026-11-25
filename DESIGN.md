@@ -1,16 +1,16 @@
 # Design
 
 A summary by topic. The reasons behind each step, written as it was built, are in
-[docs/build-notes.md](docs/build-notes.md); every failure case and how it was checked is in
-[docs/edge-cases.md](docs/edge-cases.md); the endpoints and their shapes are in
+[docs/build-notes.md](docs/build-notes.md); the endpoints and their shapes are in
 [docs/integration.md](docs/integration.md) and [docs/openapi.json](docs/openapi.json).
 
 ## Assumptions
 
 - One user and no accounts, as the brief allows; access is a design note below.
 - A conversation is about one document. Documents and questions are in English, which the keyword search assumes.
-- Answers come from a chat model on the same machine (LM Studio) or any OpenAI-compatible service. The local model
-  took about 15 to 65 seconds per answer, so a reader waits for a checked answer rather than watching text appear.
+- Answers come from a chat model on the same machine (LM Studio) or any OpenAI-compatible service. On the local
+  model an answer took from about 15 seconds to two and a half minutes, so a reader waits for a checked answer rather
+  than watching text appear.
 - Files are Markdown or plain text up to 1 MB, or PDF up to 5 MB and 100 pages with a text layer.
 - Everything runs on one machine under Docker Compose.
 
@@ -22,9 +22,8 @@ documents and answers questions, calling the model server, and reports each stag
 which the API turns into server-sent events. **pdf-parser** reads PDFs, one child process per file, on a network
 shared with the worker alone. **postgres** (with pgvector) holds everything; **redis** holds the queues.
 
-Networks keep nginx away from Postgres and Redis, and the parser away from everything but the worker. The app's own
-containers run as non-root users on read-only filesystems with no Linux capabilities; Postgres and Redis keep only
-the few their entrypoints need. All have memory and process limits.
+Networks keep nginx away from Postgres and Redis, and the parser away from all but the worker. The app's own
+containers run as non-root users on read-only filesystems, and every container has memory and process limits.
 
 ## Data model
 
@@ -46,8 +45,7 @@ changed, so every offset points at the stored text. A job splits it along headin
 about 300 tokens, packing small sections together, embeds them with their heading paths, and writes every passage
 and the `ready` status in one transaction. A document that would make more than 5,000 passages is refused before
 anything is embedded. A PDF first goes to the parser, which puts two-column pages in reading order, keeps one copy
-of a running head, drops page numbers, and records where each page starts. Scans are refused with a reason; OCR is a
-next step.
+of a running head, drops page numbers, and records where each page starts. Scans are refused.
 
 ## Retrieval and answers
 
@@ -89,10 +87,9 @@ sweeper finds rows whose job was lost and queues them again, at most twice. A us
 the latest question; every POST takes an `Idempotency-Key`; while 20 uploads or 20 questions wait, new ones get 503
 `busy`. If Redis is down, the new row is removed and the client gets 503, rather than a row that would never move.
 
-Uploads, questions and model replies are untrusted. Prompt injection can't be prevented, only contained: the model
-has no tools and the prompt no secrets, retrieval is scoped to one document in code, quotes are checked by the
-server, and the web app shows all text as text. The worst case is a wrong answer about the same document, for its
-own reader.
+Prompt injection can't be prevented, only contained: the model has no tools and the prompt no secrets, retrieval is
+scoped to one document in code, quotes are checked by the server, and the web app shows all text as text. The worst
+case is a wrong answer about the same document, for its own reader.
 
 ## Alternatives I weighed
 
@@ -101,21 +98,32 @@ answer whose quotes fail is hidden. I chose to stream progress instead and send 
 
 **Meaning-only search.** On a generated 5,100-word report with 24 questions, meaning alone put the right passage in
 the top three a little more often than hybrid (23 and 21 of 24 with the local embedding model, 24 and 23 with
-Gemini's). By the rule written before the run hybrid stays, but only after labels completed after the first run
-moved one question; with the first labels it would have switched. Both sent the right passage to the model for all
-24, so I kept hybrid, whose keyword half is there for exact codes and rare names that one generated document can't
-test ([docs/benchmark.md](docs/benchmark.md)).
+Gemini's). The rule written before the run keeps hybrid only because labels completed after the first run moved
+one question. Both sent the right passage to the model for all 24, so I kept hybrid, whose keyword half is there for
+exact codes and rare names one generated document can't test ([docs/benchmark.md](docs/benchmark.md)).
 
 ## How the work was split
 
 Before the clock: a test of local models for verbatim quotes, written up in
 [docs/model-check.md](docs/model-check.md). Then, in order: the skeleton (Compose, health checks, migrations, the
 test command), so every later step landed with tests run the same way; the thin path from upload to checked answer,
-run against both real models; failure handling in the worker, then at the API; input security and prompt
-injection; live progress; PDF; the search benchmark; the web app; these docs. Each step ended with fresh reviews by
+which the brief asks for first, run against both real models; failure handling in the worker, then at the API, and
+input security, so the required system was sound before it grew; then the extras: live progress, PDF, the search
+benchmark, and the web app last, on an API that had stopped changing; these docs. Each step ended with fresh reviews by
 an agent that hadn't seen the work, and their fixes; real-model runs are in [docs/model-runs.md](docs/model-runs.md).
 Times are in [TIMELOG.md](TIMELOG.md), and how the coding agent was directed and checked is in
 [docs/ai-use.md](docs/ai-use.md).
+
+## Tests and checks
+
+Most automated tests run the real code against real Postgres and Redis in containers, with real BullMQ workers and a
+fake OpenAI-compatible model server that can hold a reply open, reply with broken JSON, answer 429 or 5xx, or refuse a prompt as
+too long. The risky parts live in SQL and the queue (the search statement, guarded updates, idempotency claims,
+retries, the sweeper, shutdown), where mocks would only test the mocks. Text code (chunking, quote matching, hidden
+characters, PDF reading order on generated files) has unit tests and a fixed-seed random test. The web app's tests
+cover splitting text into lines and highlights, with a test that its heading rule matches the server's; its panes
+were checked by hand. Real models stay out of the automated tests, being slow and not repeatable; they were checked
+in written-up runs. Every failure case and how it was checked is in [docs/edge-cases.md](docs/edge-cases.md).
 
 ## Complete and remaining
 
@@ -126,9 +134,11 @@ Not verified or not done:
 
 - It has only run on Windows with Docker Desktop. There is no CI.
 - The web app has only run against a stand-in model with canned replies.
-- The hosted path ran in step 2 and the benchmark only, on Gemini's free tier.
-- Scans need OCR; virus scanning is described, not built; the app connects as a database superuser, which pgvector's
-  `create extension` needs.
+- Answers on the hosted path last ran on step 2's code; step 7's benchmark ran only Gemini's embeddings and
+  follow-up rewrites, and how the app handles Gemini's 429 and 503 replies is untested.
+- Scans need OCR. Virus scanning isn't built: it would be a ClamAV daemon the worker calls before reading a file,
+  failing the document on a hit; uploads are never served back, and PDFs are read in a container with no network.
+- The app connects as a database superuser, which pgvector's `create extension` needs.
 - Open event streams have no cap. A question about a document that goes in whole still pays for an embedding.
 - Plain-text files get the server's Markdown heading rules for section labels, but the app draws them as plain
   text.
@@ -139,15 +149,14 @@ Not verified or not done:
 
 I chose team spaces. A document belongs to a space, not a person: members of the space can read it and ask about
 it, and the uploader or a space admin can re-prepare or delete it. Whether members see each other's conversations
-is not decided; private to whoever started one is the safer default.
+is not decided.
 
 In this code that would mean a `spaces` table, a `space_members` table with a role, `space_id` on documents and
-`user_id` on conversations. Every id in a route leads to one document (a message to its conversation, a
-conversation to its document); that lookup would join the caller's membership and answer 404, not 403, so ids from
-other spaces can't be probed, and the document list would filter by the caller's spaces. The event stream would
-check on opening and on each re-read, so a removed member's streams close within 15 seconds. Idempotency keys would
-be scoped per user, since today a key reused by another person on the same route would replay their response.
-Search is already scoped to one document.
+`user_id` on conversations. Every id in a route leads to one document; that lookup would join the caller's
+membership and answer 404, not 403, so other spaces' ids can't be probed, and the list would filter by space. The
+event stream would check again on each re-read, closing a removed member's streams within 15 seconds. Idempotency
+keys would be scoped per user: today another person sending the same request with the same key gets the first
+response. Search is already scoped to one document.
 
 ## A million documents
 
