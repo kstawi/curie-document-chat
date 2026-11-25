@@ -25,6 +25,9 @@ let container: HTMLDivElement;
 let uploadReply: { promise: Promise<Response>; settle: (r: Response) => void };
 // Holds the document list back when a test needs it to arrive late.
 let listGate: Promise<void> = Promise.resolve();
+// Every document's conversations, and the renames asked for.
+let conversations: { id: string; createdAt: string; title: string | null }[] = [];
+let renames: string[] = [];
 
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,6 +42,13 @@ beforeEach(async () => {
       if (url.endsWith('/content')) {
         return reply({ content: 'Some text.', format: 'text', pages: null });
       }
+      if (init?.method === 'PATCH') {
+        const title = (JSON.parse(init.body as string) as { title: string }).title;
+        renames.push(title);
+        conversations = conversations.map((c) => ({ ...c, title }));
+        return reply(conversations[0]);
+      }
+      if (url.endsWith('/conversations')) return reply({ items: conversations });
       return reply({ items: [] });
     }),
   );
@@ -208,4 +218,41 @@ it('marks the upload button when an upload fails after its dialog was closed, an
   expect(dialog?.querySelector('[role="alert"]')?.textContent).toBe('Not a text file.');
   await click(dialog?.querySelector('[aria-label="Close"]'));
   expect(button()?.textContent).toBe('Upload a document');
+});
+
+it('shows a conversation by its name and date, and renames it with Enter but not Escape', async () => {
+  conversations = [
+    {
+      id: '10000000-0000-4000-8000-000000000001',
+      createdAt: '2026-11-25T10:00:00.000Z',
+      title: 'Who owned the pilot?',
+    },
+  ];
+  renames = [];
+  await click(inList(1));
+  const header = () => container.querySelector('section.window .chat-header')!;
+  expect(header().querySelector('option')?.textContent).toMatch(/^Who owned the pilot\? \(.+\)$/);
+
+  const type = async (text: string, key: string) => {
+    await click([...header().querySelectorAll('button')].find((b) => b.textContent === 'Rename'));
+    const box = header().querySelector('input')!;
+    expect(document.activeElement).toBe(box);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(box, text);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => box.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+  };
+
+  await type('Pilot owner', 'Enter');
+  expect(renames).toEqual(['Pilot owner']);
+  expect(header().querySelector('input')).toBeNull();
+  expect(header().querySelector('option')?.textContent).toMatch(/^Pilot owner \(/);
+
+  await type('Something else', 'Escape');
+  expect(renames).toEqual(['Pilot owner']);
+  expect(header().querySelector('option')?.textContent).toMatch(/^Pilot owner \(/);
+  expect(document.activeElement?.textContent).toBe('Rename');
+  conversations = [];
 });

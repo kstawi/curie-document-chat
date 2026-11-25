@@ -554,7 +554,14 @@ mark {
 }
 
 .chat-header .field {
+  flex: 1 1 12rem;
   min-width: 0;
+}
+
+/* The menu and the rename box fill their field, so in a narrow window the buttons wrap below them. */
+.chat-header .field select,
+.chat-header .field input {
+  width: 100%;
 }
 
 .chat-header .button {
@@ -567,6 +574,14 @@ mark {
   gap: 0.2rem;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.field input {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--page);
+  font-size: 0.85rem;
 }
 
 .field select {

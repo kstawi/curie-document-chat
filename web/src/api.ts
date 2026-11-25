@@ -19,6 +19,8 @@ export interface DocumentContent {
 export interface Conversation {
   id: string;
   createdAt: string;
+  // The first question until the model names it; null before the first question.
+  title: string | null;
 }
 
 export interface Quote {
@@ -111,6 +113,8 @@ export const api = {
     call<{ items: Conversation[] }>(`/documents/${documentId}/conversations`).then((r) => r.items),
   newConversation: (documentId: string) =>
     call<Conversation>(`/documents/${documentId}/conversations`, json('POST')),
+  rename: (conversationId: string, title: string) =>
+    call<Conversation>(`/conversations/${conversationId}`, json('PATCH', { title })),
   messages: (conversationId: string) =>
     call<{ items: Message[] }>(`/conversations/${conversationId}/messages`).then((r) => r.items),
   ask: (conversationId: string, question: string) =>

@@ -25,9 +25,9 @@ const when = (iso: string) =>
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-    // Two conversations started in the same minute would otherwise look alike.
-    second: '2-digit',
   });
+// The name with a short date, so two similar names can still be told apart.
+const label = (c: Conversation) => `${c.title ?? 'New conversation'} (${when(c.createdAt)})`;
 
 // What a screen reader hears as an answer the reader is waiting for moves on.
 function progress(m: Message) {
@@ -69,6 +69,11 @@ export function Chat({
   const [problem, setProblem] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  // The name being typed while renaming the conversation on screen; null when not renaming.
+  const [draft, setDraft] = useState<string | null>(null);
+  const renameButton = useRef<HTMLButtonElement>(null);
+  // Set by Escape: the box loses the focus as it goes, which would otherwise save what was typed.
+  const renameCancelled = useRef(false);
   const stopFollowing = useRef<(() => void) | null>(null);
   // The conversation on screen, for replies that arrive after the reader has switched to another.
   const shown = useRef<string | null>(null);
@@ -88,11 +93,18 @@ export function Chat({
               : [...t.messages, message],
           },
     );
+  // Read again after a question is sent and when its answer is final, which is when a name can have changed.
+  const refreshNames = () =>
+    api.conversations(document.id).then(setConversations, () => {
+      // The names on screen stay as they were; the next refresh tries again.
+    });
+
   const track = (id: string) => {
     stopFollowing.current?.();
     stopFollowing.current = follow(id, (message) => {
       put(message);
       if (message.conversationId === shown.current) setAnnouncement(progress(message));
+      if (message.status !== 'pending') void refreshNames();
     });
   };
 
@@ -160,6 +172,7 @@ export function Chat({
     try {
       const message = await action();
       put(message);
+      void refreshNames();
       // The first question's conversation is followed once it is switched to.
       if (message.conversationId === shown.current) track(message.id);
       return true;
@@ -168,6 +181,24 @@ export function Chat({
       return false;
     } finally {
       setSending(false);
+    }
+  };
+
+  // Enter saves and so does clicking away; Escape or an empty name leaves it as it was.
+  const saveName = async () => {
+    const title = draft?.trim();
+    setDraft(null);
+    if (renameCancelled.current) {
+      renameCancelled.current = false;
+      return;
+    }
+    if (!conversationId || !title) return;
+    if (title === conversations.find((c) => c.id === conversationId)?.title) return;
+    try {
+      const renamed = await api.rename(conversationId, title);
+      setConversations((list) => list.map((c) => (c.id === renamed.id ? renamed : c)));
+    } catch (err) {
+      setProblem((err as ApiError).message);
     }
   };
 
@@ -195,22 +226,57 @@ export function Chat({
   return (
     <section className="pane chat" aria-label={`Conversation about ${document.title}`}>
       <header className="chat-header">
-        {conversations.length > 0 && (
+        {draft !== null ? (
           <label className="field">
-            <span>Conversation</span>
-            <select
-              value={conversationId ?? ''}
-              onChange={(e) => setConversationId(e.target.value || null)}
-            >
-              {conversationId === null && <option value="">New conversation</option>}
-              {conversations.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {when(c.createdAt)}
-                </option>
-              ))}
-            </select>
+            <span>Name</span>
+            <input
+              autoFocus
+              value={draft}
+              maxLength={80}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => void saveName()}
+              onKeyDown={(e) => {
+                // Both hand the focus back to the Rename button; the box saves as it loses the focus.
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  renameButton.current?.focus();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  renameCancelled.current = true;
+                  renameButton.current?.focus();
+                }
+              }}
+            />
           </label>
+        ) : (
+          conversations.length > 0 && (
+            <label className="field">
+              <span>Conversation</span>
+              <select
+                value={conversationId ?? ''}
+                onChange={(e) => setConversationId(e.target.value || null)}
+              >
+                {conversationId === null && <option value="">New conversation</option>}
+                {conversations.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {label(c)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )
         )}
+        <button
+          ref={renameButton}
+          className="button small"
+          disabled={conversationId === null}
+          onClick={() => {
+            renameCancelled.current = false;
+            setDraft(conversations.find((c) => c.id === conversationId)?.title ?? '');
+          }}
+        >
+          Rename
+        </button>
         <button
           className="button small"
           disabled={conversationId === null}

@@ -334,3 +334,9 @@ came from, and the model's name is written only over the question's, so a rename
 question answered again is not named twice. A rename is cleaned like a document title and kept to 80 characters.
 Conversations from before get their first question as their name in the migration. The extra call delays a first
 answer by its length (about 2 s for a rewrite on the local model, not yet measured for naming).
+
+In the web app the conversation menu shows each name with a short date (the seconds added in step 8 went, as names
+now tell conversations apart). "Rename" swaps the menu for a text box: Enter saves, and so does clicking away; Escape
+leaves the name as it was, even though the box loses the focus as it goes. The list of conversations is read again
+after a question is sent and when its answer is final, which is when the model's name arrives. In a narrow window the
+menu takes its own row and the buttons wrap below it.
