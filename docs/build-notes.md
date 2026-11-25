@@ -1,7 +1,8 @@
-# Design notes
+# Build notes
 
-These notes grow with each step of the build, so the order of the sections is the order of the work. Failure cases
-and how each one was checked are listed in [docs/edge-cases.md](docs/edge-cases.md).
+These notes were written step by step during the build, each section while its reasons were fresh, so the order of
+the sections is the order of the work. [DESIGN.md](../DESIGN.md) is the summary. Failure cases and how each one was
+checked are listed in [edge-cases.md](edge-cases.md).
 
 ## Order of the work
 
@@ -63,7 +64,7 @@ memory. Errors are logged as messages only: pg-pool attaches the whole client to
 
 The brief asks for a small working path first, so step 2 goes from upload to a checked answer with nothing extra:
 no retries, no streaming. It ran against both real models before being called done (results in
-[docs/model-runs.md](docs/model-runs.md)).
+[model-runs.md](model-runs.md)).
 
 **One row per question and answer.** The plan had separate rows for the question and the answer. The build uses
 one `turns` row per exchange instead: one status, no question without its answer, and a later retry stays on the same row. A
@@ -104,7 +105,7 @@ route returns.
 
 **Delivery for now.** Clients poll `GET /messages/:id`; live progress arrives in step 5.
 
-What step 2 leaves to later steps is listed in [docs/edge-cases.md](docs/edge-cases.md#step-2-upload-preparation-and-answers).
+What step 2 leaves to later steps is listed in [edge-cases.md](edge-cases.md#step-2-upload-preparation-and-answers).
 
 ## Step 3a: failures in the worker
 
