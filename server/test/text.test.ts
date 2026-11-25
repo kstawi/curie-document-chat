@@ -391,4 +391,11 @@ describe('next line (U+0085)', () => {
       ]),
     ).toEqual([{ start: 0, end: content.length }]);
   });
+
+  it('splits a long paragraph at it rather than inside a word', () => {
+    const text = Array(400).fill('pilots').join('\u0085');
+    const chunks = chunkText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.text).toMatch(/^pilots(\u0085pilots)*$/);
+  });
 });

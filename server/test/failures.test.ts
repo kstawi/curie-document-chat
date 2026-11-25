@@ -347,6 +347,7 @@ describe('follow-up questions', () => {
 
   it.each([
     ['is unusable', { content: 'not JSON' }],
+    ['is nothing but a next line character', { content: '{"question":"\\u0085"}' }],
     ['takes longer than its timeout', { wait: never }],
   ])(
     'fall back to the last two questions together when the rewrite %s',

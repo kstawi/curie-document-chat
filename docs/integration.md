@@ -18,7 +18,7 @@ closes. Every event's data is one line of JSON, the same object `GET /messages/:
 
 | Event      | Sent                                        | Data                                                                   |
 | ---------- | ------------------------------------------- | ---------------------------------------------------------------------- |
-| `progress` | once on connecting, then on each new stage  | the message with `status: "pending"`; `answer`, `note`, `quotes` empty |
+| `progress` | once on connecting, then on stage changes   | the message with `status: "pending"`; `answer`, `note`, `quotes` empty |
 | `final`    | once, with event id `final`, then the close | the message with `status: "completed"` or `"failed"`                   |
 
 The stream also sends a comment line (`: heartbeat`) every 15 seconds (`STREAM_HEARTBEAT_MS`), which keeps proxies
@@ -31,8 +31,11 @@ from closing a quiet connection; clients ignore it.
 - `searching`, `writing`, `checking` (the quotes);
 - `retrying`: the model server was down or stuck, and the answer is waiting to be tried again.
 
-If a worker crashes rather than stopping, the last stage stays until the sweeper queues the answer again, about two
-minutes later.
+Stages can be skipped: one that is over before the stream reads the message again (`checking` often is) is never
+sent, so a client showing a list of steps should mark the earlier ones done when a later one arrives.
+
+If a worker crashes rather than stopping, the last stage stays while no worker runs. Once one runs again, BullMQ
+finds the abandoned job within about a minute and runs it again, and the stage moves on from there.
 
 No draft text is ever sent: an answer appears only in the `final` event, after its quotes were checked. A `final`
 message with `status: "failed"` carries `error.code`; `POST /messages/:id/retry` starts it again (only the latest
@@ -67,7 +70,8 @@ events.onerror = () => {
 With curl, `curl -N http://127.0.0.1:3000/messages/<id>/events` prints the events as they arrive.
 
 Other responses, as the usual JSON error body before any stream starts: 404 for an unknown message, 400 for a
-malformed id, 503 `shutting_down`.
+malformed id, 503 `shutting_down` (or, for a request that reaches the API after it began closing, Fastify's own
+503 body).
 
 ## Quote offsets
 

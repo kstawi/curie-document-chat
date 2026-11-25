@@ -589,6 +589,11 @@ describe('questions and answers', () => {
       'model_bad_output',
     ],
     [
+      'answers with nothing but a next line character',
+      { content: '{"outcome":"answered","answer":"\\u0085","quotes":[]}' },
+      'model_bad_output',
+    ],
+    [
       'returns something other than JSON',
       { content: 'Sure! Here is the answer.' },
       'model_bad_output',

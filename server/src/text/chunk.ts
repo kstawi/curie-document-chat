@@ -1,4 +1,4 @@
-import { isBlank } from './clean.js';
+import { isBlank, WHITESPACE } from './clean.js';
 
 export interface Chunk {
   ordinal: number;
@@ -111,18 +111,18 @@ function lastEnd(re: RegExp, text: string): number {
 function splitLong(content: string, block: Span): Span[] {
   const pieces: Span[] = [];
   let start = block.start;
-  while (start < block.end && /\s/.test(content[start]!)) start++;
+  while (start < block.end && WHITESPACE.test(content[start]!)) start++;
   while (block.end - start > MAX_CHARS) {
     const window = content.slice(start, start + TARGET_CHARS);
-    let cut = lastEnd(/[.!?]["')\]]?\s+/g, window);
-    if (cut <= 0) cut = lastEnd(/\s+/g, window);
+    let cut = lastEnd(/[.!?]["')\]]?[\s\u0085]+/g, window);
+    if (cut <= 0) cut = lastEnd(/[\s\u0085]+/g, window);
     if (cut <= 0)
       cut = window.length - (isHighSurrogate(window.charCodeAt(window.length - 1)) ? 1 : 0);
     let end = start + cut;
-    while (end > start && /\s/.test(content[end - 1]!)) end--;
+    while (end > start && WHITESPACE.test(content[end - 1]!)) end--;
     if (end > start) pieces.push({ start, end });
     start += cut;
-    while (start < block.end && /\s/.test(content[start]!)) start++;
+    while (start < block.end && WHITESPACE.test(content[start]!)) start++;
   }
   if (start < block.end) pieces.push({ start, end: block.end });
   return pieces;

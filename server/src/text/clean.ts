@@ -3,9 +3,11 @@
 // operators, fillers, the byte-order mark, tag characters that can spell out a whole hidden sentence, variation
 // selectors that can carry a byte each). Kept on purpose:
 // - whitespace controls (tab, line feed, vertical tab, form feed, carriage return, next line), which separate words;
-// - the zero-width joiner and non-joiner, which Persian words and joined emoji need and which can't spell anything;
+// - the zero-width joiner and non-joiner, which Persian words and joined emoji need;
 // - the two variation selectors that draw a character as text (U+FE0E) or as an emoji (U+FE0F). The other
 //   selectors go, since a run of them after one letter is invisible and could spell out bytes.
+// The four kept invisible characters could still spell out bits in a long run. Reading such a run back needs a
+// visible instruction to decode it, which is the planted-instruction case the prompt is built to contain.
 // Lost: the England, Scotland and Wales flags, built from tag characters, show as a plain black flag, since a hidden
 // sentence could be dressed up as a flag.
 const HIDDEN_SOURCE =

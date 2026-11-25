@@ -62,6 +62,60 @@ const hold = () => {
   return { wait, release };
 };
 
+// Queries held up by a table lock, by how they start.
+const waitingOnLock = async (s: Stack, start: string) =>
+  (
+    await sql<{ n: number }>`
+      select count(*)::int as n from pg_stat_activity
+      where wait_event_type = 'Lock' and query like ${`${start}%`}
+    `.execute(s.db)
+  ).rows[0]!.n;
+
+// A queue event for a message without touching its row: progress on a parked job of a made-up attempt (a number,
+// as job ids end in one).
+let nudges = 1_000;
+async function nudge(s: Stack, id: string) {
+  let heard = false;
+  const stop = s.answerEvents.subscribe(id, () => (heard = true));
+  const job = await s.queues.answer.add(
+    'nudge',
+    { turnId: id, attempt: 0 },
+    { jobId: `${id}-${nudges++}`, delay: 600_000 },
+  );
+  await job.updateProgress('nudge');
+  // Every listener for the message runs in the same pass, so the stream's has run too.
+  await vi.waitFor(() => expect(heard).toBe(true));
+  stop();
+}
+
+// Holds every read of the turns table behind a lock, so a test can line up a read, a signal during it and a change
+// queued right behind it. Only a second read, straight after the held one, can see that change before the heartbeat.
+function holdReads(s: Stack) {
+  const lock = hold();
+  const locked = hold();
+  const first = s.db.transaction().execute(async (trx) => {
+    await sql`lock table turns in access exclusive mode`.execute(trx);
+    locked.release();
+    await lock.wait;
+  });
+  let queued: Promise<unknown> = Promise.resolve();
+  return {
+    locked: locked.wait,
+    async changeBehind(id: string, stage: 'writing') {
+      queued = s.db.transaction().execute(async (trx) => {
+        await sql`lock table turns in access exclusive mode`.execute(trx);
+        await trx.updateTable('turns').set({ stage }).where('id', '=', id).execute();
+      });
+      await vi.waitFor(async () => expect(await waitingOnLock(s, 'lock table turns')).toBe(1));
+    },
+    async release() {
+      lock.release();
+      await first;
+      await queued;
+    },
+  };
+}
+
 interface SseBlock {
   event?: string;
   id?: string;
@@ -266,6 +320,65 @@ describe('progress stream, delivered by queue events', () => {
       s.fake.embeddingWait = undefined;
       embedding.release();
       await vi.waitFor(async () => expect((await state(s, id)).status).toBe('completed'));
+    } finally {
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+    }
+  });
+
+  it('reads again at once when a change is signalled during its first read', async () => {
+    const embedding = hold();
+    s.fake.embeddingWait = embedding.wait;
+    s.fake.script({ content: ANSWER });
+    try {
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      await vi.waitFor(async () => expect((await state(s, id)).stage).toBe('searching'));
+      const reads = holdReads(s);
+      let opening: ReturnType<typeof openStream> | undefined;
+      try {
+        await reads.locked;
+        opening = openStream(base, id);
+        await vi.waitFor(async () => expect(await waitingOnLock(s, 'select')).toBe(1));
+        await nudge(s, id);
+        await reads.changeBehind(id, 'writing');
+      } finally {
+        await reads.release();
+      }
+      const stream = await opening!;
+      await vi.waitFor(() =>
+        expect(stream.events().map((e) => e.stage)).toEqual(['searching', 'writing']),
+      );
+      stream.abort();
+    } finally {
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+    }
+  });
+
+  it('reads again at once when a change is signalled during a later read', async () => {
+    const embedding = hold();
+    s.fake.embeddingWait = embedding.wait;
+    s.fake.script({ content: ANSWER });
+    try {
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      await vi.waitFor(async () => expect((await state(s, id)).stage).toBe('searching'));
+      const stream = await openStream(base, id);
+      await vi.waitFor(() => expect(stream.events()).toHaveLength(1));
+      const reads = holdReads(s);
+      try {
+        await reads.locked;
+        // The first signal starts a read that waits on the lock; the second comes while it waits.
+        await nudge(s, id);
+        await vi.waitFor(async () => expect(await waitingOnLock(s, 'select')).toBe(1));
+        await nudge(s, id);
+        await reads.changeBehind(id, 'writing');
+      } finally {
+        await reads.release();
+      }
+      await vi.waitFor(() =>
+        expect(stream.events().map((e) => e.stage)).toEqual(['searching', 'writing']),
+      );
+      stream.abort();
     } finally {
       s.fake.embeddingWait = undefined;
       embedding.release();
