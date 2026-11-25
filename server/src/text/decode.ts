@@ -1,5 +1,5 @@
 import { HttpError } from '../errors.js';
-import { forModel, oneLine } from './clean.js';
+import { forModel, isBlank, oneLine } from './clean.js';
 
 const UTF8_BOM = [0xef, 0xbb, 0xbf];
 
@@ -35,7 +35,7 @@ export function decodeUpload(bytes: Uint8Array): string {
   }
   text = text.replace(/\r\n?/g, '\n');
   // Nothing visible counts as nothing: a file of hidden characters only is empty to a reader.
-  if (forModel(text).trim() === '') {
+  if (isBlank(text)) {
     throw new HttpError(400, 'empty_document', 'The document has no text.');
   }
   return text;

@@ -212,12 +212,13 @@ Tokens aren't streamed, since text isn't an answer until its quotes are checked.
 are in `docs/integration.md`.
 
 **Where events come from.** The worker sends only the stage name through BullMQ's queue events. One listener per API
-process hands each event to the streams open for that message, and each stream re-reads its row, so an event carries
-exactly what `GET /messages/:id` returns and no draft passes through Redis. Every 15 s a stream sends a heartbeat
-comment and re-reads the row too, which catches what no job reports: the sweeper failing a lost answer, or events
-missed while Redis was away.
+process hands the two events that follow a change to the row (a new stage, the end of a run) to the streams open for
+that message, and each stream re-reads its row, so an event carries exactly what `GET /messages/:id` returns and no
+draft passes through Redis. Every 15 s a stream sends a heartbeat comment and re-reads the row too, which catches
+what no job reports: the sweeper failing or requeueing a lost answer, or events missed while Redis was away.
 
 **Ending.** The final event has the id `final`. `EventSource` reconnects after every close, so a request carrying
 `Last-Event-ID: final` gets 204, which stops it; a client arriving after the end gets the stored answer once.
-Shutting down ends open streams first, since they would keep the server from closing. Open streams have no cap of
-their own yet; each costs one row read per change and per heartbeat.
+Shutting down ends open streams first, since they would keep the server from closing; a stream still on its first
+read when that starts gets a 503. Open streams have no cap of their own yet; each costs one row read per change
+and per heartbeat.

@@ -426,6 +426,8 @@ describe('a running job', () => {
     expect(['delayed', 'waiting']).toContain(await job!.getState());
     expect(job!.attemptsMade).toBe(0);
     expect((await turnRow(turnId)).status).toBe('pending');
+    // Shown as waiting in the queue again, not as still being written.
+    expect((await stack.app.inject(`/messages/${turnId}`)).json().stage).toBeNull();
 
     stack.fake.script({ content: answered() });
     stack.restartWorkers();

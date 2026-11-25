@@ -378,20 +378,35 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
   // An answer's progress as server-sent events: `progress` while it is pending, then one `final` with id "final",
   // then the stream closes. Every event carries the message as GET /messages/:id returns it, read from the row, so
   // a draft is never sent. Queue events only prompt a re-read; the heartbeat re-reads too, which catches what no
-  // job reports (the sweeper failing a lost answer, events missed while Redis was away).
+  // job reports (the sweeper failing or requeueing a lost answer, events missed while Redis was away).
   app.get(
     '/messages/:id/events',
     { exposeHeadRoute: false, schema: { params: idParams } },
     async (request, reply) => {
-      // EventSource reconnects whenever a stream closes, the last one included; 204 tells it to stop.
+      // EventSource reconnects whenever a stream closes, the last one included; 204 tells it to stop. Sent without
+      // a lookup: the client already had the final event.
       if (request.headers['last-event-id'] === 'final') return reply.code(204).send();
       const id = request.params.id;
       let done = false;
+      let streaming = false;
+      // Set once the stream starts; end() may run before that.
+      let heartbeat: NodeJS.Timeout | undefined = undefined;
       // One read at a time, so events are sent in order and nothing follows the final one. A change that arrives
       // during a read is picked up by another read straight after.
       let reading = true;
       let dirty = false;
       let lastStage: string | null | undefined;
+
+      // Ends the stream, or, before it has started, marks the request as abandoned. Registered before the first
+      // read, so a client leaving or a shutdown starting during that read is not missed.
+      function end() {
+        if (done) return;
+        done = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+        openStreams.delete(end);
+        if (streaming) reply.raw.end();
+      }
       // JSON never contains a raw line break, so each event is a single data line.
       const send = (turn: TurnRow) => {
         const data = JSON.stringify(turnView.parse(toTurnView(turn)));
@@ -425,42 +440,48 @@ export const conversationRoutes: FastifyPluginAsyncZod<AppDeps> = async (
 
       // Listening starts before the first read, so a change in between is not missed.
       const unsubscribe = answerEvents.subscribe(id, () => void refresh());
+      openStreams.add(end);
+      // Fires when the client goes away, at any point, as well as after the response ends.
+      reply.raw.on('close', end);
       let first: TurnRow | undefined;
       try {
         first = await readTurn(id);
       } catch (err) {
-        unsubscribe();
+        end();
         throw err;
       }
       if (!first) {
-        unsubscribe();
+        end();
         throw new HttpError(404, 'not_found', 'No message with that id.');
+      }
+      // The client left or the server began shutting down during the read; a client still there gets a 503.
+      if (done) {
+        throw new HttpError(
+          503,
+          'shutting_down',
+          'The server is shutting down. Try again shortly.',
+        );
       }
 
       reply.hijack();
+      streaming = true;
       // Hijacked replies skip the onSend hook, so the security headers are set here. Buffering off for nginx.
       reply.raw.writeHead(200, {
         ...SECURITY_HEADERS,
         'content-type': 'text/event-stream; charset=utf-8',
         'x-accel-buffering': 'no',
       });
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         reply.raw.write(': heartbeat\n\n');
         void refresh();
       }, settings.STREAM_HEARTBEAT_MS);
-      function end() {
-        if (done) return;
-        done = true;
-        clearInterval(heartbeat);
-        unsubscribe();
-        openStreams.delete(end);
-        reply.raw.end();
+      try {
+        send(first);
+      } catch (err) {
+        request.log.error({ turnId: id, err: (err as Error).message }, 'progress stream failed');
+        end();
+        return reply;
       }
-      openStreams.add(end);
-      // Fires when the client goes away as well as after end().
-      reply.raw.on('close', end);
-
-      send(first);
       reading = false;
       if (dirty) void refresh();
       return reply;

@@ -189,6 +189,15 @@ export async function answerQuestion(
     );
   } catch (err) {
     if (err instanceof ModelError && err.kind === 'aborted' && shutdown.aborted) {
+      // Back to waiting in the queue, as far as a client can tell. Best effort: the database may be going too.
+      await db
+        .updateTable('turns')
+        .set({ stage: null, updated_at: new Date() })
+        .where('id', '=', turnId)
+        .where('attempt', '=', attempt)
+        .where('status', '=', 'pending')
+        .execute()
+        .catch(() => {});
       throw new ShutdownAbort();
     }
     if (isRetryable(err) && !lastAttempt) {

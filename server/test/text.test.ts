@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { chunkText, sectionAt, sectionIndex } from '../src/text/chunk.js';
-import { cleanTitle, looksLikeMarkdown } from '../src/text/decode.js';
+import { cleanTitle, decodeUpload, looksLikeMarkdown } from '../src/text/decode.js';
 import { answerPrompt, rewritePrompt } from '../src/prompt.js';
 import { cleanQuestion, forModel } from '../src/text/clean.js';
 import { mergeRanges, normalise, verifyQuotes } from '../src/text/quotes.js';
@@ -260,9 +260,9 @@ describe('hidden characters', () => {
   const hiddenOnes = [
     0x0, 0x7, 0xe, 0x1f, 0x7f, 0x9f, 0xad, 0x34f, 0x61c, 0x115f, 0x1160, 0x17b4, 0x180b, 0x200b,
     0x200e, 0x202a, 0x202e, 0x2060, 0x2064, 0x2065, 0x2066, 0x206a, 0x3164, 0xfeff, 0xfff0, 0xffa0,
-    0x1bca0, 0x1d173, 0xe0000, 0xe0041, 0xe007f, 0xe0080, 0xe0100, 0xe01ef, 0xe0fff,
+    0x1bca0, 0x1d173, 0xe0000, 0xe0041, 0xe007f, 0xe0080, 0xe0100, 0xe01ef, 0xe0fff, 0xfe00, 0xfe0d,
   ].map((cp) => String.fromCodePoint(cp));
-  // Whitespace controls, the joiners and the emoji variation selectors are kept for the model.
+  // Whitespace controls, the joiners and the text and emoji variation selectors are kept for the model.
   const visibleOnes = [
     'a',
     'Z',
@@ -278,7 +278,9 @@ describe('hidden characters', () => {
     '😀',
     '#',
     '*',
-  ].concat([0x85, 0x2019, 0x2014, 0x200c, 0x200d, 0xfe0f].map((cp) => String.fromCodePoint(cp)));
+  ].concat(
+    [0x85, 0x2019, 0x2014, 0x200c, 0x200d, 0xfe0e, 0xfe0f].map((cp) => String.fromCodePoint(cp)),
+  );
 
   it('are dropped by quote matching exactly as they are removed from text for the model', () => {
     // A fixed pseudo-random sequence, so a failure can be replayed.
@@ -369,5 +371,24 @@ describe('hidden characters', () => {
     const long = cleanTitle(`${'a'.repeat(199)}😀b`, 'x');
     expect([...long]).toHaveLength(200);
     expect(long.endsWith('😀')).toBe(true);
+  });
+});
+
+describe('next line (U+0085)', () => {
+  // `trim` and `\s` miss it, so every blank check has to count it.
+  const nel = '\u0085';
+  it('counts as blank in a document, under a heading and between quoted passages', () => {
+    expect(() => decodeUpload(Buffer.from(`${nel}\n${nel}`))).toThrow('The document has no text.');
+    // A heading with nothing visible under it makes no passage.
+    expect(chunkText(`# Title\n${nel}\n`)).toEqual([]);
+    const a = 'Mira Chen owned the limited pilot.';
+    const b = 'The pilot ran for six weeks in spring.';
+    const content = `${a}${nel}${b}`;
+    expect(
+      mergeRanges(content, [
+        { start: 0, end: a.length },
+        { start: a.length + 1, end: content.length },
+      ]),
+    ).toEqual([{ start: 0, end: content.length }]);
   });
 });

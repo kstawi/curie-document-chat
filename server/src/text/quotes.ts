@@ -1,4 +1,4 @@
-import { forModel, hiddenLengthAt, WHITESPACE } from './clean.js';
+import { forModel, hiddenLengthAt, isBlank, WHITESPACE } from './clean.js';
 import type { Quote } from '../db.js';
 import { sectionAt, type Section } from './chunk.js';
 
@@ -64,7 +64,7 @@ export function mergeRanges(content: string, ranges: Range[]): Range[] {
   for (const r of sorted) {
     const last = merged.at(-1);
     // An overlapping range gives an empty slice, so it merges too.
-    if (last && forModel(content.slice(last.end, r.start)).trim() === '') {
+    if (last && isBlank(content.slice(last.end, r.start))) {
       last.end = Math.max(last.end, r.end);
     } else {
       merged.push({ ...r });

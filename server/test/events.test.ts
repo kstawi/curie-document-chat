@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { get, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { multipart, startStack } from './helpers/stack.js';
 
@@ -105,8 +106,9 @@ describe('progress stream, delivered by queue events', () => {
   let base: string;
   let documentId: string;
   beforeAll(async () => {
-    // A heartbeat a minute away: anything a test sees sooner came through a queue event.
-    s = await startStack({ STREAM_HEARTBEAT_MS: 60_000 });
+    // A heartbeat a minute away: anything a test sees sooner came through a queue event. Retries a second apart, so
+    // the retrying stage lasts long enough to see.
+    s = await startStack({ STREAM_HEARTBEAT_MS: 60_000, JOB_BACKOFF_MS: 1_000 });
     base = await listen(s);
     documentId = await readyDocument(s);
   });
@@ -205,6 +207,71 @@ describe('progress stream, delivered by queue events', () => {
     expect(s.answerEvents.watching()).toBe(0);
   });
 
+  it('shows a retry, then follows the next attempt to the answer', async () => {
+    s.fake.script({ status: 503 }, { content: ANSWER });
+    const { id } = await ask(s, documentId, 'Who owned the pilot?');
+    const stream = await openStream(base, id);
+    await stream.closed;
+    const stages = stream.events().map((e) => e.stage);
+    expect(stages).toContain('retrying');
+    // The second attempt is followed too: a stage after the retry, then the answer.
+    expect(stages.slice(stages.indexOf('retrying') + 1)).toContain('writing');
+    expect(stream.events().at(-1)).toMatchObject({ event: 'final', status: 'completed' });
+  });
+
+  it('brings an answer that ends without a progress event at once, through the completed event', async () => {
+    await s.stopWorkers();
+    try {
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      const stream = await openStream(base, id);
+      await vi.waitFor(() => expect(stream.events().map((e) => e.stage)).toEqual([null]));
+      // The job fails on its first check, before any stage, so its end is the only event.
+      await s.db
+        .updateTable('documents')
+        .set({ embedding_model: 'another-model' })
+        .where('id', '=', documentId)
+        .execute();
+      s.restartWorkers();
+      await stream.closed;
+      expect(stream.events().at(-1)).toMatchObject({
+        event: 'final',
+        status: 'failed',
+        error: { code: 'embedding_model_changed' },
+      });
+    } finally {
+      await s.db
+        .updateTable('documents')
+        .set({ embedding_model: 'fake-embed' })
+        .where('id', '=', documentId)
+        .execute();
+    }
+  });
+
+  it('forgets a client that goes away during the first read', async () => {
+    // Pending, so a stream that missed the client leaving would stay open.
+    const embedding = hold();
+    s.fake.embeddingWait = embedding.wait;
+    s.fake.script({ content: ANSWER });
+    try {
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      await vi.waitFor(async () => expect((await state(s, id)).stage).toBe('searching'));
+      // A lock holds the stream's first read until the client has gone.
+      await s.db.transaction().execute(async (trx) => {
+        await sql`lock table turns in access exclusive mode`.execute(trx);
+        const req = get(`${base}/messages/${id}/events`, { agent: false }).on('error', () => {});
+        await vi.waitFor(() => expect(s.answerEvents.watching()).toBe(1));
+        req.destroy();
+      });
+      await vi.waitFor(() => expect(s.answerEvents.watching()).toBe(0));
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+      await vi.waitFor(async () => expect((await state(s, id)).status).toBe('completed'));
+    } finally {
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+    }
+  });
+
   it('forgets a client that goes away', async () => {
     const embedding = hold();
     s.fake.embeddingWait = embedding.wait;
@@ -241,12 +308,22 @@ describe('progress stream, without queue events', () => {
   afterAll(() => s.stop());
 
   it('still ends with the answer', async () => {
+    const embedding = hold();
+    s.fake.embeddingWait = embedding.wait;
     s.fake.script({ content: ANSWER });
-    const { id } = await ask(s, documentId, 'Who owned the pilot?');
-    const stream = await openStream(base, id);
-    await stream.closed;
-    expect(stream.events().at(-1)).toMatchObject({ event: 'final', status: 'completed' });
-    expect(stream.blocks.some((b) => b.comment === 'heartbeat')).toBe(true);
+    try {
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      await vi.waitFor(async () => expect((await state(s, id)).stage).toBe('searching'));
+      const stream = await openStream(base, id);
+      await vi.waitFor(() => expect(stream.events()).toHaveLength(1));
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+      await stream.closed;
+      expect(stream.events().at(-1)).toMatchObject({ event: 'final', status: 'completed' });
+    } finally {
+      s.fake.embeddingWait = undefined;
+      embedding.release();
+    }
   });
 
   it('ends with a failure that no job reported, such as the sweeper giving up', async () => {
@@ -282,6 +359,32 @@ describe('progress stream, without queue events', () => {
 });
 
 describe('progress stream at shutdown', () => {
+  it('refuses a stream whose first read was still running when shutdown began, so the server can stop', async () => {
+    const s = await startStack({ STREAM_HEARTBEAT_MS: 60_000 });
+    try {
+      const base = await listen(s);
+      const documentId = await readyDocument(s);
+      s.fake.script({ content: ANSWER });
+      const { id } = await ask(s, documentId, 'Who owned the pilot?');
+      await vi.waitFor(async () => expect((await state(s, id)).status).toBe('completed'));
+      let status: number | undefined;
+      let closing: Promise<void> | undefined;
+      await s.db.transaction().execute(async (trx) => {
+        await sql`lock table turns in access exclusive mode`.execute(trx);
+        get(`${base}/messages/${id}/events`, { agent: false }, (res) => {
+          status = res.statusCode;
+          res.resume();
+        });
+        await vi.waitFor(() => expect(s.answerEvents.watching()).toBe(1));
+        closing = s.app.close();
+      });
+      await closing;
+      await vi.waitFor(() => expect(status).toBe(503));
+    } finally {
+      await s.stop();
+    }
+  }, 15_000);
+
   it('is ended, so the server can stop', async () => {
     const s = await startStack({ STREAM_HEARTBEAT_MS: 60_000 });
     const embedding = hold();

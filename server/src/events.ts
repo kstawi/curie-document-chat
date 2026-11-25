@@ -14,21 +14,14 @@ export function createAnswerEvents(
   const events = new QueueEvents(QUEUE_NAMES.answer, { connection: { url: redisUrl }, prefix });
   events.on('error', onError);
   const listeners = new Map<string, Set<() => void>>();
-  // Job ids are `${messageId}-${attempt}` (queue.ts), so every attempt of a message reaches the same streams. The
-  // global `failed` event isn't sent for an attempt that will be retried, hence the wide list.
+  // Job ids are `${messageId}-${attempt}` (queue.ts), so every attempt of a message reaches the same streams.
   const changed = ({ jobId }: { jobId: string }) =>
     listeners.get(jobId.slice(0, jobId.lastIndexOf('-')))?.forEach((listener) => listener());
-  for (const name of [
-    'waiting',
-    'active',
-    'progress',
-    'delayed',
-    'stalled',
-    'completed',
-    'failed',
-  ] as const) {
-    events.on(name, changed);
-  }
+  // The two events that follow a change to the row: a new stage, and the end of a run (the handler records
+  // answers and failures itself, so a job that ends one way or the other completes). Every other row change (the
+  // sweeper's, or a stage reset at shutdown) waits for a stream's heartbeat.
+  events.on('progress', changed);
+  events.on('completed', changed);
   return {
     subscribe(messageId: string, listener: () => void) {
       let set = listeners.get(messageId);

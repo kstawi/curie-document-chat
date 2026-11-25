@@ -26,10 +26,13 @@ from closing a quiet connection; clients ignore it.
 
 `stage` on a pending message is one of:
 
-- `null`: waiting in the queue;
+- `null`: waiting in the queue, including after a worker stopped mid-answer and put it back;
 - `rewriting`: turning a follow-up into a standalone question (only when there are earlier answers);
 - `searching`, `writing`, `checking` (the quotes);
 - `retrying`: the model server was down or stuck, and the answer is waiting to be tried again.
+
+If a worker crashes rather than stopping, the last stage stays until the sweeper queues the answer again, about two
+minutes later.
 
 No draft text is ever sent: an answer appears only in the `final` event, after its quotes were checked. A `final`
 message with `status: "failed"` carries `error.code`; `POST /messages/:id/retry` starts it again (only the latest
@@ -38,9 +41,13 @@ question of a conversation, and only once it has failed), after which a new stre
 ### Reconnecting
 
 The browser's `EventSource` reconnects by itself whenever a stream closes, including after the final event. It then
-sends `Last-Event-ID: final`, and the server answers 204, which makes `EventSource` stop. A client that connects
-after the answer is done still receives it once, as a `final` event. A dropped connection before the end is simply
-opened again: the first event repeats the current state.
+sends `Last-Event-ID: final`, and the server answers 204 without looking the message up, which makes `EventSource`
+stop. A client that connects after the answer is done still receives it once, as a `final` event. After a dropped
+connection, `EventSource` reconnects and the first event repeats the current state.
+
+It gives up for good on an error status, though: a 503 while the API shuts down (`shutting_down`), or a 502 from a
+proxy while the API restarts. A client that has not had its `final` event should then open a new stream after a
+pause, or fall back to `GET /messages/:id`.
 
 Through the web app, the API sits under `/api`:
 
@@ -51,12 +58,16 @@ events.addEventListener('final', (e) => {
   showMessage(JSON.parse(e.data));
   events.close();
 });
+// CLOSED here means EventSource gave up (an error status), not the end of the answer.
+events.onerror = () => {
+  if (events.readyState === EventSource.CLOSED) setTimeout(reopen, 3000);
+};
 ```
 
 With curl, `curl -N http://127.0.0.1:3000/messages/<id>/events` prints the events as they arrive.
 
-Other responses: 404 for an unknown message and 400 for a malformed id, both as the usual JSON error body, before
-any stream starts.
+Other responses, as the usual JSON error body before any stream starts: 404 for an unknown message, 400 for a
+malformed id, 503 `shutting_down`.
 
 ## Quote offsets
 
