@@ -1,0 +1,520 @@
+{
+  "date": "2026-11-25",
+  "chatModel": "google/gemma-4-26b-a4b-qat",
+  "embeddingModel": "text-embedding-nomic-embed-text-v1.5",
+  "passages": "37",
+  "budgetTokens": 4000,
+  "table": "| Questions | Keyword hit@1 | Keyword hit@3 | Meaning hit@1 | Meaning hit@3 | Hybrid hit@1 | Hybrid hit@3 | Hybrid in budget |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| all | 11/24 | 16/24 | 17/24 | 22/24 | 14/24 | 20/24 | 23/24 |\n| exact | 5/8 | 6/8 | 4/8 | 7/8 | 5/8 | 7/8 | 8/8 |\n| paraphrase | 2/10 | 5/10 | 8/10 | 9/10 | 5/10 | 8/10 | 9/10 |\n| follow-up (rewritten) | 4/6 | 5/6 | 5/6 | 6/6 | 4/6 | 5/6 | 6/6 |\n| follow-up (as asked) | 1/6 | 1/6 | 1/6 | 3/6 | 1/6 | 1/6 | 4/6 |",
+  "rows": [
+    {
+      "id": "exact-grant",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "What is the grant number from the Marine Resilience Fund?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-satellite-price",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "How much does one satellite message cost?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-field-supervisor",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "Who is the field supervisor?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-uptime-2025",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "What was the network uptime in 2025?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-gull-point-2023",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "Which station had the worst uptime in 2023, and how bad was it?",
+      "hit1": {
+        "keyword": true,
+        "meaning": false,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-surge-date",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "What happened on 11 November 2025?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": false,
+        "hybrid": false
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-antenna-height",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "How high was the Harrow Quay antenna before and after the move?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "exact-licence",
+      "kind": "exact",
+      "variant": "as asked",
+      "searched": "Under which licence is the data published?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-turbine-removed",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "Why was one of the wind generators taken away again?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-fouling",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "How did they keep sea creatures from growing over the water measuring instruments?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-injury",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "What happened when a worker got hurt out on the rocks?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-rusted-parts",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "Which metal parts rusted away, and what took their place?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-how-long-kept",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "For how many years do they hold on to the unprocessed measurements?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-false-alarms",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "How did they cut down the number of wrong warnings about sudden jumps in water level?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-who-uses-it",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "Who in the area actually relies on the measurements day to day?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "inBudget": false
+    },
+    {
+      "id": "para-no-heating",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "Why won't they keep the sensors warm in winter?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-church-risk",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "What could go wrong with the receiver that sits in the place of worship?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "para-batteries",
+      "kind": "paraphrase",
+      "variant": "as asked",
+      "searched": "What kind of energy storage replaced the old one, and why was it worth the price?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-second-turbine",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "And how did the one at the second station work out?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-second-turbine",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "How did the wind turbine at Gull Point (S-07) work out?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-satellite-cap",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "Is there a limit on that spending?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-satellite-cap",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "Is there a limit on the cost of one satellite message?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-after-incident",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "What changed afterwards?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "inBudget": false
+    },
+    {
+      "id": "follow-after-incident",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "What changed after the safety incident at the Low Rock station (S-11) in March 2025?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-storage-why",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "Why did they do that?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "inBudget": false
+    },
+    {
+      "id": "follow-storage-why",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "Why did the data move from a server in the trust's office to object storage at a cloud provider in March 2025?",
+      "hit1": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-drift-fix",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "How do they plan to deal with it?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-drift-fix",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "How do they plan to deal with the salinity sensor drift?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": true,
+        "meaning": true,
+        "hybrid": true
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-new-stations",
+      "kind": "follow-up",
+      "variant": "as asked",
+      "searched": "How many more, and by when?",
+      "hit1": {
+        "keyword": false,
+        "meaning": false,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "inBudget": true
+    },
+    {
+      "id": "follow-new-stations",
+      "kind": "follow-up",
+      "variant": "rewritten",
+      "searched": "How many more stations are to be added and by when?",
+      "hit1": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "hit3": {
+        "keyword": false,
+        "meaning": true,
+        "hybrid": false
+      },
+      "inBudget": true
+    }
+  ]
+}

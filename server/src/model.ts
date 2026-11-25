@@ -73,8 +73,13 @@ const rewriteFormat = {
 } as const;
 
 // Model output is checked at the edge like any other input.
+// Gemini leaves out an index of 0, as protobuf drops default values; a missing index anywhere else ends up as a
+// repeated 0, which the order check below refuses.
 const embeddingItems = z.array(
-  z.object({ index: z.number().int(), embedding: z.array(z.number().finite()).min(1) }),
+  z.object({
+    index: z.number().int().default(0),
+    embedding: z.array(z.number().finite()).min(1),
+  }),
 );
 
 // What went wrong with a call. The jobs decide what each leads to (the failure table in DESIGN.md).

@@ -272,6 +272,7 @@ describe('job handlers', () => {
     for (const transform of [
       (d: Items) => d.slice(1), // one missing
       (d: Items) => d.map((x) => ({ ...x, index: 0 })), // the same position twice
+      (d: Items) => d.map((x, i) => (i === 1 ? { embedding: x.embedding } : x)), // an index missing after the first
       (d: Items) => d.map((x, i) => (i === 0 ? { ...x, embedding: [0.5] } : x)), // sizes differ
       (d: Items) => d.map((x) => ({ ...x, embedding: ['not', 'numbers'] })),
       () => undefined as unknown as Items, // no list at all
@@ -289,6 +290,18 @@ describe('job handlers', () => {
       } finally {
         stack.fake.embeddingTransform = undefined;
       }
+    }
+  });
+
+  it('accepts a reply that leaves out the first index, as Gemini does', async () => {
+    stack.fake.embeddingTransform = (d) =>
+      d.map((x, i) => (i === 0 ? { embedding: x.embedding } : x));
+    try {
+      expect(
+        await createModel(stack.deps.config).embed(['first text', 'second text'], 'query'),
+      ).toHaveLength(2);
+    } finally {
+      stack.fake.embeddingTransform = undefined;
     }
   });
 
