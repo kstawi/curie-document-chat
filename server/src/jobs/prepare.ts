@@ -56,6 +56,8 @@ export async function prepareDocument(
     log,
   );
 
+  // Set while the PDF is with the parser, so a run cut off then is labelled as such.
+  let reading = false;
   try {
     let content = doc.content ?? '';
     let pages = doc.page_map;
@@ -63,6 +65,7 @@ export async function prepareDocument(
     // earlier answers' quotes stay valid.
     const extract = doc.format === 'pdf' && doc.content === null;
     if (extract) {
+      reading = true;
       const file = await db
         .selectFrom('document_files')
         .select('bytes')
@@ -74,6 +77,7 @@ export async function prepareDocument(
         signal,
         config.PDF_PARSER_TIMEOUT_MS,
       ));
+      reading = false;
     }
     // Indexed and embedded as the chat model reads it; the offsets still point into the stored text. A chunk with
     // nothing visible left is skipped.
@@ -151,7 +155,7 @@ export async function prepareDocument(
           : err instanceof ParserUnavailable
             ? 'pdf_parser_unavailable'
             : // Cut off by the job's own time limit while the PDF was being read.
-              signal.aborted
+              reading && signal.aborted
               ? 'pdf_parse_timeout'
               : 'internal_error';
     log.warn({ documentId, code, err: (err as Error).message }, 'preparation failed');

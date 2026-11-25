@@ -19,11 +19,13 @@ const MARKS = /[*_`\u200C\u200D]/;
 
 const HYPHENS = /[-‐‑]/;
 const LETTER = /\p{L}/u;
+// What a word ends in once decomposed: a letter, or the accent of one ("ä-" ends in a combining mark).
+const WORD_END = /[\p{L}\p{M}]/u;
 const SPACE_OR_TAB = /[ \t]/;
 
 // After a hyphen that follows a letter: where the next letter starts if the hyphen joins two parts of a word (a
-// letter straight after it, or one on the next line), else -1. Hidden characters and emphasis marks are skipped as
-// normalise() skips them, so the text and its copy for the model agree.
+// letter straight after it, or one after line breaks: the next line, or the next column or page), else -1. Hidden
+// characters and emphasis marks are skipped as normalise() skips them, so the text and its copy for the model agree.
 function joinedAt(text: string, i: number, to: number): number {
   const skip = (j: number, spaces: boolean) => {
     for (;;) {
@@ -39,7 +41,7 @@ function joinedAt(text: string, i: number, to: number): number {
   if (letterAt(j)) return j;
   j = skip(i, true);
   if (text[j] !== '\n' || j >= to) return -1;
-  j = skip(j + 1, true);
+  while (j < to && text[j] === '\n') j = skip(j + 1, true);
   return letterAt(j) ? j : -1;
 }
 
@@ -76,7 +78,7 @@ export function normalise(
       afterSpace = true;
       continue;
     }
-    if (HYPHENS.test(c) && LETTER.test(out.at(-1) ?? '')) {
+    if (HYPHENS.test(c) && WORD_END.test(out.at(-1) ?? '')) {
       const next = joinedAt(text, i + 1, to);
       if (next >= 0) {
         i = next - 1;

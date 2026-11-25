@@ -3,7 +3,7 @@
 A small service for asking questions about one document and getting answers backed by quotes from it. Built as a
 take-home exercise for Curie; it is not affiliated with or endorsed by Curie.
 
-Upload a Markdown or plain-text file; it is split into passages and indexed in the background. Then ask questions
+Upload a Markdown, plain-text or PDF file; it is split into passages and indexed in the background. Then ask questions
 in a conversation about it. Each answer comes with quotes that the server has found in the document, with their
 position, line and section. If the document doesn't answer the question, the reply says so.
 

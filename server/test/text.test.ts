@@ -398,6 +398,16 @@ describe('quote matching on PDF-style text', () => {
     expect(
       check('See the table on pages 3-\n4 for the figures.', 'See the table on pages 34 for'),
     ).toBeUndefined();
+    // After a digit the hyphen stays, so the quote keeps it too.
+    expect(
+      check('Use the 3-\nway split for every archive.', 'Use the 3- way split for every'),
+    ).toBeDefined();
+  });
+
+  it('joins after an accented letter, and across the break to the next column or page', () => {
+    const content = 'Die Universitä-\nten und das exam-\n\nple set der Archive bleiben.';
+    expect(check(content, 'Die Universitäten und das example set')).toBeDefined();
+    expect(check(content, 'Die Universitä-ten und das exam-ple set')).toBeDefined();
   });
 
   it('ends a quote after the whole last character, even outside the basic plane', () => {

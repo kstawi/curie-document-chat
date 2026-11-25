@@ -68,9 +68,9 @@ no retries, no streaming. It ran against both real models before being called do
 one `turns` row per exchange instead: one status, no question without its answer, and a later retry stays on the same row. A
 partial unique index allows one pending turn per conversation, so a second question gets a 409 without a race.
 
-**Upload.** The type comes from the bytes, never the file name: PDFs, UTF-16, invalid UTF-8 and anything with NUL
-bytes are refused; the size limit (1 MB) applies while the upload streams in. Line endings become LF and nothing
-else changes, so every offset matches the stored text.
+**Upload.** The type comes from the bytes, never the file name: UTF-16, invalid UTF-8 and anything with NUL bytes are
+refused. Uploads stream in up to 5 MB, the PDF limit, and a Markdown or text file over 1 MB is then refused. Line
+endings become LF and nothing else changes, so every offset matches the stored text.
 
 **Preparation.** A background job splits the text along headings and paragraphs into chunks of about 300 tokens,
 each with exact offsets into the document. A section under 400 characters is packed together with the next one, up to the
@@ -232,10 +232,11 @@ whose build no longer turns anything in a file into code (checked: no `eval` or 
 CVE-2024-4367. The worker treats its reply as untrusted: capped at 8 MB, shape-checked, NUL dropped.
 
 **Reading order.** pdf.js returns text in drawing order, which mixes the two columns of a paper. A page whose rows
-mostly leave an empty band in the middle is read as two columns, left before right, with lines across the page kept
-in place. Lines repeated at the top or bottom of most pages (running heads, page numbers) are dropped from the
-stored text; I chose both rules. Paragraph breaks come from vertical gaps, and an accent drawn as its own glyph is
-joined to its letter.
+mostly leave an empty band in the middle, with lines filling each side, is read as two columns, left before right,
+with lines across the page kept in place; a table of labels and values stays row by row. Lines repeated word for
+word in the top or bottom rows of most pages (running heads), and page numbers there, are dropped from the stored
+text, wherever they sit in those rows; I chose both rules. Paragraph breaks come from vertical gaps, a raised
+footnote mark stays on its line, and an accent drawn as its own glyph is joined to its letter.
 
 **Pages.** The stored text is the pages joined by blank lines, with a page map. Passages never cross a page and are
 labelled with it; a quote carries its start and end page, and one across a page break is labelled "pages 1–2". Quote

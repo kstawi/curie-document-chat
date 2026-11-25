@@ -11,6 +11,9 @@ import {
   plainPdf,
   REPORT,
   twoColumnReport,
+  journalPages,
+  quizPages,
+  tablePage,
   typesetPdf,
   unevenColumns,
 } from './helpers/pdf-fixtures.js';
@@ -34,16 +37,23 @@ describe('the PDF parser', () => {
   const parser = createPdfParser({ timeoutMs: 20_000, heapMb: 256, log });
   // A time limit no extraction can meet.
   const hurried = createPdfParser({ timeoutMs: 1, heapMb: 256, log });
+  // A heap too small for pdf.js: the child runs out of memory and dies.
+  const starved = createPdfParser({ timeoutMs: 20_000, heapMb: 16, log });
   let url: string;
   let hurriedUrl: string;
+  let starvedUrl: string;
   beforeAll(async () => {
     url = await listen(parser);
     hurriedUrl = await listen(hurried);
+    starvedUrl = await listen(starved);
   });
   afterAll(() => {
     parser.close();
     hurried.close();
+    starved.close();
   });
+  const pageOf = async (bytes: Uint8Array, n = 0) =>
+    ((await extract(url, bytes)).body as { pages: string[] }).pages[n]!;
 
   it('reads a two-column report column by column, without its running header and page numbers', async () => {
     const { status, body } = await extract(url, await twoColumnReport());
@@ -80,6 +90,64 @@ describe('the PDF parser', () => {
     const [page] = (body as { pages: string[] }).pages;
     expect(page).toContain('With semantically meaningful we mean');
     expect(page).toContain('Technische Universität Darmstadt');
+    // "´" joins a vowel only; before a consonant it is an apostrophe.
+    expect(page).toContain('Let´s meet at the café by the harbour');
+  });
+
+  it('keeps a raised footnote mark on its line, and puts margin text after the page', async () => {
+    const page = await pageOf(await typesetPdf());
+    expect(page).toContain('in each test run.12\n');
+    expect(page.split('\n')).not.toContain('12');
+    expect(page.endsWith('Generated stamp in the margin')).toBe(true);
+  });
+
+  it('drops a running head and page numbers wherever they sit on the page', async () => {
+    const { body } = await extract(url, await journalPages());
+    for (const page of (body as { pages: string[] }).pages) {
+      expect(page).not.toContain('Journal of Archive Studies');
+      expect(page).not.toMatch(/^1\d$/m);
+      // Nothing but the column break between the two halves of the sentence.
+      expect(page).toMatch(/finally\s+recorded in part \d\s+on the eighteenth/);
+    }
+  });
+
+  it('keeps lines that differ only in a number, at the top and bottom of every page', async () => {
+    const { body } = await extract(url, await quizPages());
+    const pages = (body as { pages: string[] }).pages;
+    [10, 15, 5].forEach((points, i) => {
+      expect(pages[i]).toContain(`Question ${i + 1}`);
+      expect(pages[i]).toContain(`Worth ${points} points`);
+    });
+  });
+
+  it('reads a table on a one-column page row by row', async () => {
+    const page = await pageOf(await tablePage());
+    expect(page).toContain('Pilot owner\nMira Chen\nCollections searched\nSix archive collections');
+  });
+
+  it('reports a child that runs out of memory as a failed read, not a timeout', async () => {
+    const started = Date.now();
+    expect((await extract(starvedUrl, await twoColumnReport())).body).toEqual({
+      error: 'pdf_parse_failed',
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  it('stops the child when the caller goes away', async () => {
+    lines.length = 0;
+    const long = await plainPdf(Array(99).fill(REPORT.left.join(' ').repeat(8)));
+    await fetch(`${url}/extract`, {
+      method: 'POST',
+      body: long,
+      signal: AbortSignal.timeout(300),
+    }).catch(() => {});
+    await vi.waitFor(() => expect(lines.some((l) => l.includes('pdf extracted'))).toBe(true), {
+      timeout: 10_000,
+    });
+    const logged = JSON.parse(lines.find((l) => l.includes('pdf extracted'))!);
+    // Stopped, not run to the end: a child left running would report the file read.
+    expect(logged.result).toBe('pdf_parse_failed');
+    await vi.waitFor(() => expect(() => process.kill(logged.child, 0)).toThrow(), { timeout: 300 });
   });
 
   it('turns away encrypted, scanned, blank, over-long and broken files, each with its own code', async () => {
@@ -93,14 +161,15 @@ describe('the PDF parser', () => {
     for (const [bytes, code] of cases) {
       expect((await extract(url, bytes)).body).toEqual({ error: code });
     }
-  });
+    // Five child processes in a row.
+  }, 20_000);
 
   it('stops an extraction at its time limit and leaves no process behind', async () => {
     lines.length = 0;
     // Enough pages that the process, left alone, would still be working well after the time limit.
     const long = await plainPdf(Array(99).fill(REPORT.left.join(' ').repeat(8)));
     expect((await extract(hurriedUrl, long)).body).toEqual({ error: 'pdf_parse_timeout' });
-    const pid = JSON.parse(lines.find((l) => l.includes('pdf extracted'))!).pid as number;
+    const pid = JSON.parse(lines.find((l) => l.includes('pdf extracted'))!).child as number;
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 300 });
   });
 

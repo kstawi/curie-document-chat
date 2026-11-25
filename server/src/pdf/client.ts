@@ -65,6 +65,7 @@ export async function extractPdf(
       body: bytes,
       signal: call,
     });
+    if (!res.ok) await res.body?.cancel();
     if (res.status >= 500) throw new ParserUnavailable(`parser answered ${res.status}`);
     body = res.ok ? await readCapped(res, MAX_REPLY_BYTES) : null;
   } catch (err) {

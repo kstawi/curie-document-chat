@@ -39,6 +39,8 @@ interface Line {
   text: string;
   // A piece of a two-column row, or a line across the whole page.
   side: 'left' | 'right' | 'full';
+  // In one of the top or bottom rows of its page.
+  edge?: boolean;
 }
 
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[values.length >> 1] ?? 0;
@@ -63,7 +65,8 @@ function segments(items: TextItem[]): Segment[] {
   const rows: Piece[][] = [];
   for (const p of pieces) {
     const row = rows.at(-1);
-    if (row && Math.abs(row[0]!.y - p.y) <= row[0]!.size * 0.4) row.push(p);
+    // Against the larger of the two sizes, so a raised footnote mark or exponent stays on its line.
+    if (row && Math.abs(row[0]!.y - p.y) <= Math.max(row[0]!.size, p.size) * 0.45) row.push(p);
     else rows.push([p]);
   }
   const out: Segment[] = [];
@@ -108,6 +111,8 @@ const SPACING_ACCENTS: Record<string, string> = {
 const ACCENT_THEN_LETTER = /([¨´ˆ˜ˇ˘˚˝˙¯]) ?(\p{L})/gu;
 const joinAccents = (text: string) =>
   text.replace(ACCENT_THEN_LETTER, (whole, accent: string, letter: string) => {
+    // "´" before a consonant is more often an apostrophe ("Let´s") than an accent.
+    if (accent === '´' && !/[aeiouy]/i.test(letter)) return whole;
     // A dotless i under an accent is the i of "naïve".
     const joined = ((letter === 'ı' ? 'i' : letter) + SPACING_ACCENTS[accent]).normalize('NFC');
     return joined.length === 1 ? joined : whole;
@@ -132,8 +137,29 @@ const segmentText = (s: Segment) => {
   return joinAccents(text.trim());
 };
 
-// A gutter: a vertical band in the middle part of the page that most rows leave empty, with text on both sides.
+// A gutter: a vertical band in the middle part of the page that most rows leave empty, with text on both sides, and
+// lines on each side that mostly fill their column. The last check keeps a table of labels and values on a
+// one-column page from being read as two columns.
 function findGutter(segs: Segment[]): number | null {
+  const x = gutterCandidate(segs);
+  if (x === null) return null;
+  const left = Math.min(...segs.map((s) => s.x));
+  const right = Math.max(...segs.map((s) => s.end));
+  const fills = (side: Segment[], span: number) =>
+    median(side.map((s) => s.end - s.x)) >= span * 0.5;
+  return fills(
+    segs.filter((s) => s.end <= x),
+    x - left,
+  ) &&
+    fills(
+      segs.filter((s) => s.x >= x),
+      right - x,
+    )
+    ? x
+    : null;
+}
+
+function gutterCandidate(segs: Segment[]): number | null {
   if (segs.length < 6) return null;
   const left = Math.min(...segs.map((s) => s.x));
   const right = Math.max(...segs.map((s) => s.end));
@@ -186,14 +212,30 @@ function readingOrder(segs: Segment[]): Line[] {
   return out;
 }
 
-// Lines that repeat at the top or bottom of most pages (titles, running heads, page numbers) are layout, not
-// content. Compared with digits ignored, so "Page 3" and "Page 4" are the same line.
+// A page number as printed: "12", "Page 12", "12 of 40", "12/40", "- 12 -".
+const PAGE_NUMBER =
+  /^(?:page\s+)?\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$|^[-\u2013\u2014]\s*\d{1,4}\s*[-\u2013\u2014]$/i;
+const runningKey = (l: Line) => {
+  const text = l.text.replace(/\s+/g, ' ').toLowerCase();
+  return PAGE_NUMBER.test(text) ? 'page number' : text;
+};
+
+// The lines in the two highest and two lowest rows of a page, by where they sit, whatever their reading order: in a
+// two-column page a running head on the right side is read after the left column.
+function markEdges(lines: Line[]) {
+  const rows = [...new Set(lines.map((l) => Math.round(l.y)))].sort((a, b) => b - a);
+  const edges = new Set([...rows.slice(0, 2), ...rows.slice(-2)]);
+  for (const l of lines) l.edge = edges.has(Math.round(l.y));
+}
+
+// Lines that repeat at the top or bottom of most pages (titles, running heads) are layout, not content, and so are
+// page numbers there. Compared as written, so lines that differ only in a number ("Question 1", "Question 2") stay.
 function runningLines(pages: Line[][]): Set<string> {
-  const key = (l: Line) => l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').toLowerCase();
   const counts = new Map<string, number>();
   for (const lines of pages) {
-    const edges = new Set([...lines.slice(0, 2), ...lines.slice(-2)].map(key));
-    for (const k of edges) counts.set(k, (counts.get(k) ?? 0) + 1);
+    for (const k of new Set(lines.filter((l) => l.edge).map(runningKey))) {
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
   }
   const needed = Math.max(2, Math.ceil(pages.length / 2));
   return new Set([...counts].filter(([, n]) => pages.length >= 2 && n >= needed).map(([k]) => k));
@@ -214,9 +256,10 @@ function pageText(lines: Line[]): string {
     if (i > 0) {
       const prev = lines[i - 1]!;
       const gap = prev.y - line.y;
-      // A jump up (the top of the next column) or a change of flow also starts a paragraph.
+      // A jump up (the top of the next column) or a change of flow also starts a paragraph; the next cell of a
+      // table row, on the same height, does not.
       const paragraph =
-        gap <= 0 || prev.side !== line.side || gap > Math.max(usual, line.size) * 1.4;
+        gap < -line.size * 0.2 || prev.side !== line.side || gap > Math.max(usual, line.size) * 1.4;
       text += paragraph ? '\n\n' : '\n';
     }
     text += line.text;
@@ -261,6 +304,7 @@ export async function extractPages(data: Uint8Array): Promise<PdfResult> {
       const level = items.filter((it) => Math.abs(it.transform[1] as number) < 1e-3);
       const angled = items.filter((it) => Math.abs(it.transform[1] as number) >= 1e-3);
       const lines = readingOrder(segments(level));
+      markEdges(lines);
       for (const it of angled) {
         if (it.str.trim()) lines.push({ y: -Infinity, size: 0, text: it.str.trim(), side: 'full' });
       }
@@ -268,9 +312,8 @@ export async function extractPages(data: Uint8Array): Promise<PdfResult> {
       page.cleanup();
     }
     const running = runningLines(pages);
-    const key = (l: Line) => l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').toLowerCase();
     const texts = pages.map((lines) =>
-      pageText(lines.filter((l, i) => !((i < 2 || i >= lines.length - 2) && running.has(key(l))))),
+      pageText(lines.filter((l) => !(l.edge && running.has(runningKey(l))))),
     );
     if (!isMostlyText(texts)) return { error: 'pdf_no_text' };
     return { pages: texts };

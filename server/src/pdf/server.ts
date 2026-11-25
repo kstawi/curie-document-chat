@@ -85,7 +85,7 @@ export function createPdfParser({
       const { reply, pid } = await extractInChild(data, timeoutMs, heapMb, abort.signal);
       log.info(
         {
-          pid,
+          child: pid,
           bytes: data.length,
           ms: Date.now() - started,
           result: 'error' in reply ? reply.error : 'ok',

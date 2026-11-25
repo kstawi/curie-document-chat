@@ -1,4 +1,4 @@
-import { PDFDocument, PDFHexString, PDFName, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument, PDFHexString, PDFName, StandardFonts } from 'pdf-lib';
 
 // PDFs generated for the tests, so no binary fixture is committed. All text is our own.
 
@@ -113,6 +113,100 @@ export async function typesetPdf(): Promise<Uint8Array> {
     y: 680,
     size: 9,
     font: regular,
+  });
+  // "´" written for an apostrophe, and once as an accent.
+  page.drawText('Let´s meet at the caf´e by the harbour after the review.', {
+    x: 72,
+    y: 660,
+    size: 9,
+    font: regular,
+  });
+  // A footnote mark, raised and smaller, right after the end of a sentence.
+  x = 72;
+  const sentence = 'The pilot ran in each test run.';
+  page.drawText(sentence, { x, y: 640, size: 10, font: regular });
+  page.drawText('12', {
+    x: x + regular.widthOfTextAtSize(sentence, 10),
+    y: 643.6,
+    size: 7,
+    font: regular,
+  });
+  page.drawText('Hybrid search was proposed in earlier work and adopted.', {
+    x: 72,
+    y: 628,
+    size: 10,
+    font: regular,
+  });
+  // A stamp up the left margin, as arXiv adds, starting level with the lines above: read as a line, it would land
+  // among them.
+  page.drawText('Generated stamp in the margin', {
+    x: 30,
+    y: 650,
+    size: 9,
+    font: regular,
+    rotate: degrees(90),
+  });
+  return doc.save();
+}
+
+// Four pages of a journal in two columns: the running head sits at the top right and the page number at the bottom
+// left, so neither is first or last in reading order. A sentence runs from the left column into the right one.
+export async function journalPages(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 4; n++) {
+    // Each page's own text, at its edges too: body lines repeated on every page would rightly count as running.
+    const left = wrap(
+      `Part ${n}. ${REPORT.left.join(' ')} The decision was finally recorded in part ${n}`,
+      40,
+    );
+    const right = wrap(
+      `on the eighteenth, part ${n}, by the owner. ${REPORT.nextRight[0]} End of part ${n}.`,
+      40,
+    );
+    const page = doc.addPage([612, 792]);
+    page.drawText('Journal of Archive Studies', { x: 420, y: 752, size: 9, font });
+    left.forEach((line, i) => page.drawText(line, { x: 72, y: 700 - i * 13, size: 10, font }));
+    right.forEach((line, i) => page.drawText(line, { x: 320, y: 700 - i * 13, size: 10, font }));
+    page.drawText(String(10 + n), { x: 72, y: 40, size: 9, font });
+  }
+  return doc.save();
+}
+
+// Three quiz pages whose first and last lines differ only in a number: content, not running lines.
+export async function quizPages(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  [10, 15, 5].forEach((points, i) => {
+    const page = doc.addPage([612, 792]);
+    page.drawText(`Question ${i + 1}`, { x: 72, y: 740, size: 12, font });
+    wrap(REPORT.left[i % 2]!, 80).forEach((line, j) =>
+      page.drawText(line, { x: 72, y: 700 - j * 14, size: 11, font }),
+    );
+    page.drawText(`Worth ${points} points`, { x: 72, y: 60, size: 11, font });
+  });
+  return doc.save();
+}
+
+// A one-column page with a table of labels and values.
+export async function tablePage(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([612, 792]);
+  wrap(REPORT.left[0]!, 80).forEach((line, i) =>
+    page.drawText(line, { x: 72, y: 740 - i * 14, size: 11, font }),
+  );
+  const rows = [
+    ['Pilot owner', 'Mira Chen'],
+    ['Collections searched', 'Six archive collections'],
+    ['Search kinds compared', 'Keyword, meaning and hybrid'],
+    ['Decision recorded', '18 March 2026'],
+    ['Next phase', 'Twelve collections'],
+    ['Measured', 'Cost per question'],
+  ];
+  rows.forEach(([label, value], i) => {
+    page.drawText(label!, { x: 72, y: 660 - i * 16, size: 11, font });
+    page.drawText(value!, { x: 300, y: 660 - i * 16, size: 11, font });
   });
   return doc.save();
 }

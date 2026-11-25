@@ -12,7 +12,8 @@ asks for the instructions actually used. The broader personal rules that also ap
   for. From step 5 on (the author's change, 2026-11-24): at most two, each running alongside the next step in its
   own git worktree at the reviewed commit, with its own Compose project name.
 - Up to step 4, ask the author before loading a local model, since it takes most of the machine's memory. From then
-  on the author gave a standing OK, until told to stop.
+  on the author gave a standing OK, until told to stop; on 2026-11-25, during step 6's fixes, the author said to load
+  none until asked again.
 - Each step ships with its own tests and adds its own section to `DESIGN.md` while the reasons are fresh.
 - Read this file at the start of every step. The agent's session runs from a parent folder, so it may not load it
   automatically.
