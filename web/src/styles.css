@@ -5,6 +5,8 @@
   --panel: #201e1d;
   --raised: #33302e;
   --border: #45413e;
+  /* The divider between a document and its chat: brighter than other borders, so it stands out as a handle. */
+  --grip-line: #6e6863;
   /* The sidebar's upload section, a step darker than the list above it. */
   --well: #181716;
   --text: #f2efed;
@@ -415,7 +417,8 @@ button:disabled {
   min-width: 0;
 }
 
-/* A one-pixel line with a wider area to grab. */
+/* A line with a wider area to grab and a small grip at its middle, so it reads as something to drag. Narrow enough
+   to leave the document's scrollbar beside it uncovered. */
 .divider {
   position: relative;
   flex: none;
@@ -424,19 +427,36 @@ button:disabled {
   z-index: 1;
   cursor: col-resize;
   touch-action: none;
+  --grip: var(--grip-line);
 }
 
 .divider::before {
   content: '';
   position: absolute;
   inset: 0 4px;
-  background: var(--border);
+  background: var(--grip);
 }
 
-.divider:hover::before,
-.divider:focus-visible::before,
-.window-body[data-dragging] .divider::before {
-  background: var(--accent);
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--grip);
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--grip), var(--grip)) 1px 50% / 1px 14px no-repeat,
+    linear-gradient(var(--grip), var(--grip)) 3px 50% / 1px 14px no-repeat,
+    var(--raised);
+}
+
+.divider:hover,
+.divider:focus-visible,
+.window-body[data-dragging] .divider {
+  --grip: var(--accent);
 }
 
 .divider:focus-visible {
