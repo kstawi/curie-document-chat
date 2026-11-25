@@ -8,7 +8,12 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const skip = new Set(['node_modules', 'dist', 'coverage', '.git', 'fixtures']);
 // CLAUDE.md quotes the phrases on purpose, so it only gets the style checks; this script quotes everything.
 const quotesPhrases = new Set(['CLAUDE.md']);
-const skipFiles = new Set(['scripts/phrase-scan.mjs']);
+// The brief is someone else's text, kept byte for byte; the plan is a record kept as written, phrase list included.
+const skipFiles = new Set([
+  'scripts/phrase-scan.mjs',
+  'scripts/model-check/brief.md',
+  'docs/plan.md',
+]);
 const scanned = /\.(md|tsx?|m?js|ya?ml)$|^Dockerfile$|^\.env\.example$/;
 
 const phrases = [

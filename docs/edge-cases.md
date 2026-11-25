@@ -227,8 +227,9 @@ Not handled yet, on purpose (later steps own them):
 
 ## Step 8: web app
 
-Checked by hand on 2026-11-25 in a browser at 1440 by 900, against the full stack with a stand-in model that returns
-canned replies (no model was loaded).
+Checked by hand on 2026-11-25 in a browser, against the full stack with a stand-in model that returns canned
+replies (no model was loaded), at 1440 by 900. The Enter row was checked after the first review's fixes, without a worker
+(so questions stayed pending) and in a smaller window.
 
 | Case                                                               | What happens                                                                             | Verified                                                                                                                                      |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |

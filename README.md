@@ -7,8 +7,9 @@ Upload a Markdown, plain-text or PDF file; it is split into passages and indexed
 in a conversation about it. Each answer comes with quotes that the server has found in the document, with their
 position, line and section. If the document doesn't answer the question, the reply says so.
 
-Work in progress. Design notes: [DESIGN.md](DESIGN.md). Failure cases and how each was checked:
-[docs/edge-cases.md](docs/edge-cases.md).
+Design and limits: [DESIGN.md](DESIGN.md). Endpoints: [docs/integration.md](docs/integration.md). Failure cases and
+how each was checked: [docs/edge-cases.md](docs/edge-cases.md). How a coding agent was used and checked:
+[docs/ai-use.md](docs/ai-use.md). Time spent: [TIMELOG.md](TIMELOG.md).
 
 ## Run it
 

@@ -8,3 +8,7 @@ samples
 docs/runs
 # Written by `npm run openapi -w server`; a test compares it with the routes.
 docs/openapi.json
+# The brief exactly as the model check read it.
+scripts/model-check/brief.md
+# A record of the plan, kept as written.
+docs/plan.md

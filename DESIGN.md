@@ -1,0 +1,164 @@
+# Design
+
+A summary by topic. The reasons behind each step, written as it was built, are in
+[docs/build-notes.md](docs/build-notes.md); every failure case and how it was checked is in
+[docs/edge-cases.md](docs/edge-cases.md); the endpoints and their shapes are in
+[docs/integration.md](docs/integration.md) and [docs/openapi.json](docs/openapi.json).
+
+## Assumptions
+
+- One user and no accounts, as the brief allows; access is a design note below.
+- A conversation is about one document. Documents and questions are in English, which the keyword search assumes.
+- Answers come from a chat model on the same machine (LM Studio) or any OpenAI-compatible service. The local model
+  took about 15 to 65 seconds per answer, so a reader waits for a checked answer rather than watching text appear.
+- Files are Markdown or plain text up to 1 MB, or PDF up to 5 MB and 100 pages with a text layer.
+- Everything runs on one machine under Docker Compose.
+
+## Architecture
+
+Six services. **web** is nginx serving the built React app and passing `/api` on, so the browser sees one origin.
+**api** is Fastify with a zod schema on every route: it writes a row and adds a BullMQ job. **worker** prepares
+documents and answers questions, calling the model server, and reports each stage through BullMQ's queue events,
+which the API turns into server-sent events. **pdf-parser** reads PDFs, one child process per file, on a network
+shared with the worker alone. **postgres** (with pgvector) holds everything; **redis** holds the queues.
+
+Networks keep nginx away from Postgres and Redis, and the parser away from everything but the worker. The app's own
+containers run as non-root users on read-only filesystems with no Linux capabilities; Postgres and Redis keep only
+the few their entrypoints need. All have memory and process limits.
+
+## Data model
+
+- `documents`: title, format, the stored text, status (`queued`, `processing`, `ready`, `failed`), the error, the
+  embedding model used, a PDF's page map, and `attempt`, `requeues` and `heartbeat_at` for failure handling.
+- `document_files`: an uploaded PDF, kept so it can be read again, never served.
+- `chunks`: a passage's exact start and end in the stored text, its heading path, its text, a generated `tsvector`
+  with a GIN index, and an embedding in a `vector` column with no fixed size, so documents embedded by different
+  models can sit side by side.
+- `conversations` and `turns`: one `turns` row per question and its answer, with one status, the stage, the outcome,
+  the answer or note, the checked quotes, and which model and path produced it. A partial unique index allows one
+  pending question per conversation.
+- `idempotency_keys`: the stored response for each key and route, for 24 hours.
+
+## Background preparation
+
+An upload's type comes from its bytes, never the file name. Text must be UTF-8 and is stored with only line endings
+changed, so every offset points at the stored text. A job splits it along headings and paragraphs into passages of
+about 300 tokens, packing small sections together, embeds them with their heading paths, and writes every passage
+and the `ready` status in one transaction. A document that would make more than 5,000 passages is refused before
+anything is embedded. A PDF first goes to the parser, which puts two-column pages in reading order, keeps one copy
+of a running head, drops page numbers, and records where each page starts. Scans are refused with a reason; OCR is a
+next step.
+
+## Retrieval and answers
+
+One SQL statement ranks a document's passages twice, by full-text match and by vector distance, and merges the two
+top-20 lists by reciprocal rank fusion. Passages fill a 4,000-token budget best-first and go to the model in
+document order; a document that fits the budget goes in whole. A follow-up is first rewritten into a standalone
+question, used for the search only.
+
+The model gets the passages, the last three turns that got an answer or a not-in-document note, and the question,
+each inside a tag the document can't guess, and must reply with strict JSON. The server then looks for each quote
+in the passages it sent (at least 20 characters, through a normalised copy that ignores quote and dash styles,
+spacing and line breaks, Markdown emphasis, hidden characters, compatibility forms and line-end hyphens) and decides
+the outcome itself: `answered` needs at least one quote found; a claim with none is `unsupported` and its text is
+never shown; `not_in_document` keeps the model's short note, marked as not backed by a quote.
+
+## Answer delivery
+
+A question's POST returns at once as `pending`. `GET /messages/:id/events` streams the stages (waiting, rewriting a
+follow-up, searching, writing, checking quotes) and then the stored answer once, with the id `final`; every 15
+seconds it re-reads the row, which catches what no job reports. `GET /messages/:id` returns the same row for
+clients that poll, and the web app falls back to polling when the stream gives up.
+
+## Failure handling
+
+Every job update is guarded by its status and attempt, so a late or repeated job can't overwrite newer state. Model
+failures lead to:
+
+| Failure                              | Answer, thinking on                              | Retry, thinking off | Follow-up rewrite                  | Embeddings                                                  |
+| ------------------------------------ | ------------------------------------------------ | ------------------- | ---------------------------------- | ----------------------------------------------------------- |
+| Token cap, no JSON, wrong JSON shape | retry with thinking off                          | `model_bad_output`  | search with the last two questions | `model_bad_output`                                          |
+| Call timeout                         | retry with thinking off                          | run the job again   | search with the last two questions | run the job again                                           |
+| 429, 5xx, server unreachable         | run the job again                                | run the job again   | run the job again                  | run the job again                                           |
+| Prompt longer than the context       | half the passages, once; then `context_too_long` | `context_too_long`  | search with the last two questions | preparing: `internal_error`; a question: `context_too_long` |
+| Other 4xx                            | `model_rejected`                                 | `model_rejected`    | search with the last two questions | `model_rejected`                                            |
+
+A job runs at most three times, and on the last a failure that would run it again is recorded as
+`model_unavailable`. Each run has a time limit. A stopped worker puts its job back without spending an attempt. A
+sweeper finds rows whose job was lost and queues them again, at most twice. A user can retry a failed document or
+the latest question; every POST takes an `Idempotency-Key`; while 20 uploads or 20 questions wait, new ones get 503
+`busy`. If Redis is down, the new row is removed and the client gets 503, rather than a row that would never move.
+
+Uploads, questions and model replies are untrusted. Prompt injection can't be prevented, only contained: the model
+has no tools and the prompt no secrets, retrieval is scoped to one document in code, quotes are checked by the
+server, and the web app shows all text as text. The worst case is a wrong answer about the same document, for its
+own reader.
+
+## Alternatives I weighed
+
+**Streaming the answer's words.** It feels faster, but text isn't an answer until its quotes are checked, and an
+answer whose quotes fail is hidden. I chose to stream progress instead and send the answer once it is checked.
+
+**Meaning-only search.** On a generated 5,100-word report with 24 questions, meaning alone put the right passage in
+the top three a little more often than hybrid (23 and 21 of 24 with the local embedding model, 24 and 23 with
+Gemini's). By the rule written before the run hybrid stays, but only after labels completed after the first run
+moved one question; with the first labels it would have switched. Both sent the right passage to the model for all
+24, so I kept hybrid, whose keyword half is there for exact codes and rare names that one generated document can't
+test ([docs/benchmark.md](docs/benchmark.md)).
+
+## How the work was split
+
+Before the clock: a test of local models for verbatim quotes, written up in
+[docs/model-check.md](docs/model-check.md). Then, in order: the skeleton (Compose, health checks, migrations, the
+test command), so every later step landed with tests run the same way; the thin path from upload to checked answer,
+run against both real models; failure handling in the worker, then at the API; input security and prompt
+injection; live progress; PDF; the search benchmark; the web app; these docs. Each step ended with fresh reviews by
+an agent that hadn't seen the work, and their fixes; real-model runs are in [docs/model-runs.md](docs/model-runs.md).
+Times are in [TIMELOG.md](TIMELOG.md), and how the coding agent was directed and checked is in
+[docs/ai-use.md](docs/ai-use.md).
+
+## Complete and remaining
+
+Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 254
+server and 6 web tests run in containers by `docker compose run --rm test`.
+
+Not verified or not done:
+
+- It has only run on Windows with Docker Desktop. There is no CI.
+- The web app has only run against a stand-in model with canned replies.
+- The hosted path ran in step 2 and the benchmark only, on Gemini's free tier.
+- Scans need OCR; virus scanning is described, not built; the app connects as a database superuser, which pgvector's
+  `create extension` needs.
+- Open event streams have no cap. A question about a document that goes in whole still pays for an embedding.
+- Plain-text files get the server's Markdown heading rules for section labels, but the app draws them as plain
+  text.
+- In the web app, Enter during Safari's input-method conversion sends the question, and narrow screens get no
+  layout of their own.
+
+## Access to documents
+
+I chose team spaces. A document belongs to a space, not a person: members of the space can read it and ask about
+it, and the uploader or a space admin can re-prepare or delete it. Whether members see each other's conversations
+is not decided; private to whoever started one is the safer default.
+
+In this code that would mean a `spaces` table, a `space_members` table with a role, `space_id` on documents and
+`user_id` on conversations. Every id in a route leads to one document (a message to its conversation, a
+conversation to its document); that lookup would join the caller's membership and answer 404, not 403, so ids from
+other spaces can't be probed, and the document list would filter by the caller's spaces. The event stream would
+check on opening and on each re-read, so a removed member's streams close within 15 seconds. Idempotency keys would
+be scoped per user, since today a key reused by another person on the same route would replay their response.
+Search is already scoped to one document.
+
+## A million documents
+
+Answering across a million documents changes the search, not the answer check. Nothing below was measured.
+
+- One embedding model per index, with a fixed vector size and an approximate index (pgvector's HNSW, or a separate
+  vector store once one Postgres is too small). Changing models means re-embedding in the background into a new
+  index and switching over.
+- The space filter goes inside the search, not after it, which is easiest with passages partitioned by space.
+- Retrieval in two stages: find candidate documents, then passages within them, so the prompt stays at its budget.
+- Quotes carry a document id; checking them against the passages sent works unchanged.
+- Preparation is already a queue, so workers scale out; embedding throughput becomes the limit, and identical files
+  can be found by hash and prepared once. Text and PDFs move to object storage.
+- The benchmark here covers one document. Cross-document recall needs its own labelled set before choosing.
