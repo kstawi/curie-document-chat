@@ -34,10 +34,12 @@ export function DocumentWindow({
   useEffect(() => {
     const el = self.current;
     if (!pointed || !el) return;
-    el.focus();
+    // After the upload dialog closes, which hands the focus back to the button that opened it.
+    const frame = requestAnimationFrame(() => el.focus());
     el.dataset.pointed = '';
     const timer = setTimeout(() => delete el.dataset.pointed, 1_200);
     return () => {
+      cancelAnimationFrame(frame);
       clearTimeout(timer);
       delete el.dataset.pointed;
     };

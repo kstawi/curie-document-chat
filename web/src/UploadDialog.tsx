@@ -50,7 +50,10 @@ export function UploadDialog({
           e.preventDefault();
           setOver(true);
         }}
-        onDragLeave={() => setOver(false)}
+        onDragLeave={(e) => {
+          // Moving over the area's own text or button is not leaving it.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
           setOver(false);

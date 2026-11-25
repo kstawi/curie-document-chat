@@ -308,7 +308,12 @@ document and its chat split 50/50 along a line that can be dragged or moved with
 75%. The retry buttons moved from the list into each window's header. Nothing is remembered across a reload.
 
 Each window is keyed by its document, and only the window list is keyed, so a pane can't be left behind; a test in a
-browser-like DOM (jsdom 30.1.3, added for it) opens, points to and closes windows and counts the panes, and it found
-three panes where one was expected on the old code. Up to four chats share the page, so the question box's id comes
-from `useId`. Nothing around a window scrolls, so a quote scrolled into view moves only its own pane. The question box
-and the chat's header were made more compact, so a quarter of the screen still leaves room for answers.
+browser-like DOM (jsdom 30.1.3, added for it) opens, points to and closes windows and counts the panes; an earlier
+form of it found three panes where one was expected on the old code. Other tests there check that a window keeps its
+own state when another closes and that an upload finishing late sees the windows open by then. Up to four chats share
+the page, so the question box's id comes from `useId`. Nothing around a window scrolls, so a quote scrolled into view
+moves only its own pane; the first review found the screen-reader text of an open document, placed outside the list,
+stretching the page, and every such text now sits inside its own element. The question box and the chat's header
+were made more compact, so a quarter of the screen still leaves room for answers. A failed upload opens the dialog
+again with its reason, a new upload's window takes the focus, and a file dropped outside the drop area is ignored
+rather than opened by the browser in place of the app.

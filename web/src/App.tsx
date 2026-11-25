@@ -78,9 +78,18 @@ export function App() {
     );
   };
 
-  const show = (id: string) => {
-    const next = openWindow(openNow.current, id);
-    if (next.result === 'already-open') setPointed((p) => ({ id, count: (p?.count ?? 0) + 1 }));
+  const byId = new Map(documents.map((d) => [d.id, d]));
+  const windows = open.flatMap((id) => byId.get(id) ?? []);
+
+  // A document that has dropped out of the list (only the newest 100 are read) gives up its window's place.
+  const show = (id: string, focus = false) => {
+    const next = openWindow(
+      openNow.current.filter((o) => byId.has(o)),
+      id,
+    );
+    if (next.result === 'already-open' || (focus && next.result === 'opened')) {
+      setPointed((p) => ({ id, count: (p?.count ?? 0) + 1 }));
+    }
     setNotice(next.result === 'full' ? FULL : '');
     openNow.current = next.open;
     setOpen(next.open);
@@ -102,9 +111,12 @@ export function App() {
       const doc = await api.upload(file);
       changed(doc);
       setUploadOpen(false);
-      show(doc.id);
+      // The button that opened the dialog may be gone with the empty page, so the focus goes to the new window.
+      show(doc.id, true);
     } catch (err) {
       setUploadError((err as ApiError).message);
+      // The reason is shown in the dialog, so it opens again if it was closed while the file was going up.
+      setUploadOpen(true);
     } finally {
       setUploading(false);
     }
@@ -115,11 +127,25 @@ export function App() {
     setUploadOpen(true);
   };
 
-  const byId = new Map(documents.map((d) => [d.id, d]));
-  const windows = open.flatMap((id) => byId.get(id) ?? []);
+  // A file dropped anywhere but the upload dialog's drop area is ignored; the browser would otherwise open it in
+  // place of the app, and every open window with it.
+  useEffect(() => {
+    const ignore = (e: DragEvent) => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', ignore);
+    window.addEventListener('drop', ignore);
+    return () => {
+      window.removeEventListener('dragover', ignore);
+      window.removeEventListener('drop', ignore);
+    };
+  }, []);
 
   return (
     <div className="app">
+      <h1 className="visually-hidden">Curie document chat</h1>
       <DocumentList
         documents={documents}
         open={open}

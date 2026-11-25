@@ -52,7 +52,7 @@ const WORDING: Record<string, string> = {
   document_failed:
     'This document could not be prepared, so it cannot take questions until it is prepared again.',
   embedding_model_changed:
-    'This document was prepared with a different model than the one now set up. Prepare it again from the list.',
+    'This document was prepared with a different model than the one now set up. Prepare it again with the button at the top of its window.',
 };
 export const wording = (error: { code: string; message: string }) =>
   WORDING[error.code] ?? error.message;
