@@ -326,7 +326,7 @@ describe('PDF documents', () => {
 
   it('are refused for good when encrypted, and can be tried again after the parser was down', async () => {
     const locked = await prepared(await encryptedPdf());
-    expect(locked.doc.error.code).toBe('pdf_encrypted');
+    expect(locked.doc).toMatchObject({ error: { code: 'pdf_encrypted' }, retryable: false });
     const retry = await s.app.inject({ method: 'POST', url: `/documents/${locked.id}/retry` });
     expect(retry.statusCode).toBe(409);
 
@@ -345,6 +345,7 @@ describe('PDF documents', () => {
           ),
         { timeout: 10_000 },
       );
+      expect((await down.app.inject(`/documents/${docId}`)).json().retryable).toBe(true);
       const again = await down.app.inject({ method: 'POST', url: `/documents/${docId}/retry` });
       expect(again.statusCode).toBe(202);
     } finally {
@@ -463,11 +464,13 @@ describe('PDF documents', () => {
     const count = () => reads++;
     s.parser.on('request', count);
     try {
+      expect((await s.app.inject(`/documents/${id}`)).json().retryable).toBe(false);
       await s.db
         .updateTable('documents')
         .set({ embedding_model: 'another-model' })
         .where('id', '=', id)
         .execute();
+      expect((await s.app.inject(`/documents/${id}`)).json().retryable).toBe(true);
       expect(
         (await s.app.inject({ method: 'POST', url: `/documents/${id}/retry` })).statusCode,
       ).toBe(202);

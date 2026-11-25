@@ -29,6 +29,9 @@ const documentView = z.object({
   format: z.enum(['markdown', 'text', 'pdf']),
   status: z.enum(['queued', 'processing', 'ready', 'failed']),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  // Whether POST /documents/:id/retry would take it: a failure that may not happen again, or a ready document
+  // indexed by another embedding model than the configured one.
+  retryable: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -42,16 +45,23 @@ const columns = [
   'status',
   'error_code',
   'error_message',
+  'embedding_model',
   'created_at',
   'updated_at',
 ] as const;
 
-const toView = (d: Pick<Selectable<DocumentsTable>, (typeof columns)[number]>) => ({
+const toView = (
+  d: Pick<Selectable<DocumentsTable>, (typeof columns)[number]>,
+  embeddingModel: string,
+) => ({
   id: d.id,
   title: d.title,
   format: d.format,
   status: d.status,
   error: d.error_code ? { code: d.error_code, message: d.error_message ?? '' } : null,
+  retryable:
+    (d.status === 'failed' && !LASTING_FAILURES.has(d.error_code ?? '')) ||
+    (d.status === 'ready' && d.embedding_model !== embeddingModel),
   createdAt: d.created_at,
   updatedAt: d.updated_at,
 });
@@ -142,7 +152,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               .values({ document_id: row.id, bytes: Buffer.from(bytes) })
               .execute();
           }
-          await claim.record(trx, 202, toView(row));
+          await claim.record(trx, 202, toView(row, embeddingModel));
           return row;
         });
         try {
@@ -157,7 +167,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
           throw queueUnavailable();
         }
         request.log.info({ documentId: doc.id }, 'document accepted');
-        return { status: 202, body: toView(doc) };
+        return { status: 202, body: toView(doc, embeddingModel) };
       });
     },
   );
@@ -214,7 +224,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
               .returning(columns)
               .executeTakeFirst();
             if (!row) throw notRetryable();
-            await claim.record(trx, 202, toView(row));
+            await claim.record(trx, 202, toView(row, embeddingModel));
             return row;
           });
           try {
@@ -242,7 +252,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
             throw queueUnavailable();
           }
           request.log.info({ documentId: doc.id, attempt: next }, 'document retry accepted');
-          return { status: 202, body: toView(updated) };
+          return { status: 202, body: toView(updated, embeddingModel) };
         },
       ),
   );
@@ -267,7 +277,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         .limit(request.query.limit)
         .offset(request.query.offset)
         .execute();
-      return { items: rows.map(toView) };
+      return { items: rows.map((d) => toView(d, embeddingModel)) };
     },
   );
 
@@ -281,7 +291,7 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
         .where('id', '=', request.params.id)
         .executeTakeFirst();
       if (!doc) throw new HttpError(404, 'not_found', 'No document with that id.');
-      return toView(doc);
+      return toView(doc, embeddingModel);
     },
   );
 

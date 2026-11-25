@@ -1,0 +1,379 @@
+/* Dark only. Measured contrast on the page colour: text 12.8:1, muted text 8.0:1, orange text 5.1:1. Light text on
+   solid orange fails (2.5:1), so the primary button carries dark text and a highlight is a tint with an underline. */
+:root {
+  --page: #2a2826;
+  --panel: #201e1d;
+  --raised: #33302e;
+  --border: #45413e;
+  --text: #f2efed;
+  --muted: rgb(255 255 255 / 70%);
+  --accent: #f67222;
+  --accent-tint: rgb(246 114 34 / 18%);
+  --error: #ff9b8a;
+  --serif: 'Charis SIL', Georgia, serif;
+  --sans: 'Inter Variable', system-ui, sans-serif;
+  --radius: 6px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--text);
+  font: 15px/1.5 var(--sans);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr) minmax(20rem, 26rem);
+  height: 100%;
+}
+
+.pane {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 1rem;
+}
+
+.pane + .pane {
+  border-left: 1px solid var(--border);
+}
+
+.documents,
+.chat {
+  background: var(--panel);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--error);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  cursor: pointer;
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1b1a19;
+}
+
+.button.small {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.button:disabled,
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Documents */
+.upload {
+  display: block;
+}
+
+.upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.upload:focus-within .button {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.documents ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.documents li {
+  margin-bottom: 0.25rem;
+}
+
+.document {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.document:hover {
+  background: var(--raised);
+}
+
+.document.selected {
+  border-color: var(--border);
+  background: var(--raised);
+}
+
+.document .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.status.failed {
+  color: var(--error);
+}
+
+/* The document, in serif at a comfortable line length. */
+.reader h1 {
+  font: 400 1.6rem/1.3 var(--serif);
+  max-width: 42rem;
+  margin: 0.5rem auto 1rem;
+}
+
+.reader > p {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+.reader.empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.document-text {
+  max-width: 42rem;
+  margin: 0 auto 4rem;
+  font: 17px/1.6 var(--serif);
+}
+
+.line {
+  min-height: 1lh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.line.heading {
+  margin-top: 0.8em;
+}
+
+.line.h1 {
+  font-size: 1.45em;
+}
+
+.line.h2 {
+  font-size: 1.25em;
+}
+
+.line.h3 {
+  font-size: 1.1em;
+}
+
+.line.quote {
+  padding-left: 0.8em;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}
+
+.line.fence,
+.line.code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--panel);
+  padding-inline: 0.5em;
+}
+
+.marker {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+mark {
+  background: var(--accent-tint);
+  color: inherit;
+  text-decoration: underline var(--accent);
+  text-underline-offset: 3px;
+}
+
+.page-marker {
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  font: 0.75rem var(--sans);
+  color: var(--muted);
+}
+
+/* Conversation */
+.chat {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.chat-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.field {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.field select {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+  font-size: 0.85rem;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.message {
+  margin-bottom: 1.5rem;
+}
+
+.question {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+
+.answer {
+  margin: 0.5rem 0;
+}
+
+.stage {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.quotes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.quote {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quote:hover {
+  background: var(--raised);
+}
+
+.quote-text {
+  font: 0.95rem/1.5 var(--serif);
+}
+
+.quote-where {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ask {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.field-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ask textarea {
+  resize: vertical;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--page);
+}
+
+.ask .button {
+  justify-self: end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
