@@ -1,0 +1,27 @@
+# Raw output of the step 7 long-document check, 2026-11-25 (see docs/model-runs.md)
+
+## The step 7 build through Docker Compose; Gemma 4 26B-A4B + nomic-embed-text-v1.5 (LM Studio); the benchmark
+## document (samples/benchmark), one conversation. Quote text is shown with whitespace collapsed.
+
+document ready in 1.021s
+
+Q: What is the grant number from the Marine Resilience Fund?
+completed/answered in 37.622s: The grant number from the Marine Resilience Fund is MRF-2291.
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 8 Costs and funding, line 293] The Marine Resilience Fund paid 412,000 euros under grant MRF-2291
+
+Q: How did they keep sea creatures from growing over the water measuring instruments?
+completed/answered in 151.347s: To prevent marine life from growing over the salinity sensors, each sensor was placed inside a copper anti-fouling sleeve, as larvae do not settle on copper.
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 4 Hardware changes > 4.2 Sensors, line 104] each salinity sensor now sits inside a copper anti-fouling sleeve.
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 4 Hardware changes > 4.2 Sensors, line 105] Larvae do not settle on copper, and the sleeve stretched the interval between cleanings from three weeks to nine.
+
+Q: Which stations got a wind turbine?
+completed/answered in 71.129s: The stations that received wind turbines were Kestrel Head (S-03) and Gull Point (S-07).
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 4 Hardware changes > 4.1 Power, line 82] the trust trialled small wind turbines at two of the windiest stations, Kestrel Head (S-03) and Gull Point (S-07).
+
+Q: And how did the one at the second station work out?
+completed/answered in 96.52s: The turbine at Gull Point (S-07) stayed in place because it had no neighbors to disturb. It covered approximately 35 percent of the station's energy use from November to February and was the main reason the station remained online through its first full winter after being built.
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 4 Hardware changes > 4.1 Power, line 87] The turbine at Gull Point had no neighbours to disturb.
+  [Saltmarsh Coastal Sensor Network: Field Report 2024 to 2026 > 4 Hardware changes > 4.1 Power, line 87] It stayed in place and covered about 35 percent of the station's energy use from November to February, which is the main reason Gull Point stayed onli
+
+Q: What colour are the station masts painted?
+completed/not_in_document in 31.47s: The provided document does not mention the color of the station masts.

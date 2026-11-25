@@ -181,3 +181,12 @@ the parser container.
   came back `not_in_document`.
 - Still as the page has them: footnotes sit at the end of their column, so a sentence that runs past them into the
   next column is split there; tables come out cell by cell.
+
+## Step 7: the long benchmark document on a real model (a hand check, no criteria written beforehand)
+
+Raw output: [runs/2026-11-25-step7-long-document.txt](runs/2026-11-25-step7-long-document.txt). The 5,100-word
+benchmark document, larger than the passage budget, in one conversation on Gemma: the grant number (one verified quote,
+38 s), how the sensors are kept clear of marine growth, asked without the document's words (two quotes, 151 s), which
+stations got a turbine and then "and how did the one at the second station work out?" (the follow-up answered about
+Gull Point with two quotes, 97 s), and the colour of the masts, which came back `not_in_document` (31 s). The search
+benchmark itself is in `docs/benchmark.md`.

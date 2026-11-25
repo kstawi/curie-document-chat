@@ -2,6 +2,7 @@
 // each question with the real search, and reports hit@1 and hit@3 for keyword, meaning and hybrid.
 // Usage: npm run bench -w server              (the models in .env)
 //        npm run bench -w server -- --gemini  (Gemini, with GEMINI_API_KEY from .env)
+//        add `--reuse docs/runs/<file>.json` to search the follow-ups with that run's rewrites instead of new ones
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import pg from 'pg';
 import { pino } from 'pino';
@@ -11,7 +12,8 @@ import { prepareDocument } from '../src/jobs/prepare.js';
 import { migrateToLatest } from '../src/migrate.js';
 import { createModel } from '../src/model.js';
 import { rewritePrompt, type EarlierTurn } from '../src/prompt.js';
-import { rankPassages, searchDocument, type Passage } from '../src/search.js';
+import { rankPassages, searchDocument, type Passage, type RankedPassage } from '../src/search.js';
+import { estimateTokens } from '../src/text/chunk.js';
 
 interface Question {
   id: string;
@@ -29,6 +31,19 @@ const { questions } = JSON.parse(read('samples/benchmark/questions.json')) as {
 };
 
 const gemini = process.argv.includes('--gemini');
+const reuseAt = process.argv.indexOf('--reuse');
+const reused =
+  reuseAt > 0
+    ? new Map(
+        (
+          JSON.parse(read(process.argv[reuseAt + 1]!)) as {
+            rows: { id: string; variant: string; searched: string }[];
+          }
+        ).rows
+          .filter((r) => r.variant === 'rewritten')
+          .map((r) => [r.id, r.searched]),
+      )
+    : null;
 const base = loadConfig();
 const config: Config = gemini
   ? {
@@ -101,6 +116,10 @@ try {
   for (const q of questions) {
     asked.push({ q, text: q.question, variant: 'as asked' });
     if (!q.previous) continue;
+    if (reused) {
+      asked.push({ q, text: reused.get(q.id)!, variant: 'rewritten' });
+      continue;
+    }
     try {
       asked.push({
         q,
@@ -132,7 +151,20 @@ try {
     hit1: Hits;
     hit3: Hits;
     inBudget: boolean;
+    meaningInBudget: boolean;
   }[] = [];
+  // What a meaning-only search would send: the same best-first fill of the budget, over the meaning order.
+  const fill = (order: RankedPassage[]) => {
+    const picked: RankedPassage[] = [];
+    let used = 0;
+    for (const p of order) {
+      const tokens = estimateTokens(p.text);
+      if (picked.length > 0 && used + tokens > config.PASSAGE_TOKEN_BUDGET) continue;
+      picked.push(p);
+      used += tokens;
+    }
+    return picked;
+  };
   for (const [i, a] of asked.entries()) {
     const ranked = await rankPassages(db, documentId, a.text, vectors[i]!);
     const orders = {
@@ -160,6 +192,7 @@ try {
       hit1: Object.fromEntries(METHODS.map((m) => [m, found(a.q, orders[m].slice(0, 1))])) as Hits,
       hit3: Object.fromEntries(METHODS.map((m) => [m, found(a.q, orders[m].slice(0, 3))])) as Hits,
       inBudget: found(a.q, sent),
+      meaningInBudget: found(a.q, fill(orders.meaning)),
     });
   }
 
@@ -175,14 +208,16 @@ try {
   const count = (list: typeof rows, pick: (r: (typeof rows)[number]) => boolean) =>
     `${list.filter(pick).length}/${list.length}`;
   const table = [
-    '| Questions | Keyword hit@1 | Keyword hit@3 | Meaning hit@1 | Meaning hit@3 | Hybrid hit@1 | Hybrid hit@3 | Hybrid in budget |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Questions | Keyword hit@1 | Keyword hit@3 | Meaning hit@1 | Meaning hit@3 | Hybrid hit@1 | Hybrid hit@3 | Hybrid in budget | Meaning in budget |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...Object.entries(groups).map(
       ([name, list]) =>
         `| ${name} | ${METHODS.flatMap((m) => [
           count(list, (r) => r.hit1[m]),
           count(list, (r) => r.hit3[m]),
-        ]).join(' | ')} | ${count(list, (r) => r.inBudget)} |`,
+        ]).join(
+          ' | ',
+        )} | ${count(list, (r) => r.inBudget)} | ${count(list, (r) => r.meaningInBudget)} |`,
     ),
   ].join('\n');
 
@@ -203,7 +238,7 @@ try {
     rows,
   };
   mkdirSync(new URL('docs/runs/', root), { recursive: true });
-  const file = `docs/runs/${date}-benchmark-${config.EMBEDDING_MODEL.replace(/[^a-z0-9.]+/gi, '-')}.json`;
+  const file = `docs/runs/${date}-benchmark-${config.EMBEDDING_MODEL.replace(/[^a-z0-9.]+/gi, '-')}${reused ? '-rescored' : ''}.json`;
   writeFileSync(new URL(file, root), `${JSON.stringify(result, null, 2)}\n`);
   console.log(
     `${config.EMBEDDING_MODEL} (chat ${config.CHAT_MODEL}), ${result.passages} passages\n\n${table}\n`,

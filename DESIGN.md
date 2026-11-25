@@ -249,3 +249,13 @@ matching now decomposes each character (NFKD) and joins words hyphenated at line
 ready PDF for another embedding model keeps its text, so earlier quotes' offsets hold. Encrypted files, files with no
 text layer (scans; OCR is the next step) and files over 100 pages fail for good. A read that failed or timed out can
 be tried again, and a parser that is down is retried with the job.
+
+## Step 7: search benchmark
+
+`docs/benchmark.md` has the method, the rule written before the first run, and both rounds of results. On a
+5,100-word generated report with 24 questions, meaning alone found the right passage in the top three a little more
+often than hybrid (23 and 21 of 24 with nomic, 24 and 23 with Gemini); by the rule hybrid stays, and both put the
+right passage among those sent to the model for all 24. Keyword search on its own was weakest, mostly on paraphrases,
+and the rewrite of follow-ups mattered more than the method. Running the hosted path found a bug: Gemini leaves out the
+index of the first embedding, and the app had refused every such reply. Search now sends a document that fits the
+budget whole, which the claim in step 2 assumed but the top-20 candidate lists did not guarantee.

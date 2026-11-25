@@ -38,4 +38,59 @@ is changed after the first run without saying so here.
 
 ## Results
 
-Not run yet.
+Run on 2026-11-25. Raw results, one file per run, are in `docs/runs/` (`2026-11-25-benchmark-*.json`).
+
+The first Gemini attempt failed before any ranking: Gemini's endpoint leaves out the index of the first embedding in
+a reply, and the app refused every such reply. That was a bug in the app's hosted path, fixed in the same step (see
+`docs/ai-log.md`), and the run was repeated.
+
+### First runs, labels as written before the run
+
+All 24 deciding questions (follow-ups after the rewrite):
+
+| Embeddings                                        | Keyword hit@1 | Keyword hit@3 | Meaning hit@1 | Meaning hit@3 | Hybrid hit@1 | Hybrid hit@3 | Hybrid in budget |
+| ------------------------------------------------- | ------------- | ------------- | ------------- | ------------- | ------------ | ------------ | ---------------- |
+| nomic-embed-text-v1.5 (rewrites by Gemma 4)       | 11            | 16            | 17            | 22            | 14           | 20           | 23               |
+| gemini-embedding-2 (rewrites by gemini-3.5-flash) | 12            | 17            | 20            | 24            | 17           | 22           | 24               |
+
+On these numbers the rule would switch the default to meaning alone (two questions ahead of hybrid with both models).
+
+### Labels completed after the first run
+
+The questions were labelled against a shorter first draft of the document, and the sections added afterwards were
+only checked for each expected text occurring once, not for holding a second right answer. Before deciding, every
+question was labelled again from the document alone, with one test for every passage: could a reader given only that
+passage answer the question correctly. Five questions gained right passages; none lost any:
+
+- the 2025 uptime is also stated in the summary;
+- who relies on the readings: also the publishing section (the harbour office and two sailing apps) and the note on
+  the two Harrow Quay stations;
+- the risk to the church gateway: also sections 10 and 11 and the station notes;
+- how the Gull Point turbine worked out: also its station note;
+- whether satellite spending has a limit: also three later mentions of the monthly cap.
+
+The follow-ups were searched again with the same rewrites as in the first runs, so only the labels changed. The
+"meaning in budget" column was added at the same time.
+
+### Results with the completed labels
+
+| Embeddings            | Keyword hit@1 | Keyword hit@3 | Meaning hit@1 | Meaning hit@3 | Hybrid hit@1 | Hybrid hit@3 | Hybrid in budget | Meaning in budget |
+| --------------------- | ------------- | ------------- | ------------- | ------------- | ------------ | ------------ | ---------------- | ----------------- |
+| nomic-embed-text-v1.5 | 12            | 17            | 19            | 23            | 15           | 21           | 24               | 24                |
+| gemini-embedding-2    | 13            | 18            | 20            | 24            | 18           | 23           | 24               | 24                |
+
+By kind, with nomic: exact 7 of 8 at hit@3 for every method; paraphrases 5, 10 and 9 of 10 for keyword, meaning and
+hybrid; rewritten follow-ups 5, 6 and 5 of 6. Searched as asked, without the rewrite, the follow-ups found the right
+passage in the top three only 1, 4 and 2 times out of 6.
+
+### Decision
+
+Meaning alone leads hybrid at hit@3 by two questions with nomic and by one with Gemini. The two models point
+different ways, so by the rule hybrid stays the default, and the gap is reported here. On what the model actually
+receives, the passages that fit the 4,000-token budget, hybrid and meaning alone both include the right passage for
+all 24 questions with both models.
+
+What the numbers say beyond the rule: on this document keyword search adds little, and paraphrases are where it
+loses; the rewrite of follow-ups matters more than the choice of method. With the uncorrected labels the rule would
+have switched; the decision rests on labels completed after seeing the first results, which is a weakness of this
+benchmark and why both rounds are reported.
