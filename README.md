@@ -14,14 +14,15 @@ how each was checked: [docs/edge-cases.md](docs/edge-cases.md). How a coding age
 **Recording** (under five minutes):
 https://drive.google.com/file/d/1D8keRAuGFamHvyK0pqtZQCdTHl8rDz1w/view?usp=sharing
 
-**Time.** About 19 hours of work from the first line of code to submission, against the four-hour target, plus about
+**Time.** About 19.5 hours of work from the first line of code to submission, against the four-hour target, plus about
 3.6 hours of preparation before it (planning and a test of local models). Measured afterwards from the session logs,
-the coding agent worked about 17.6 of those hours while I waited, I was involved for up to about 1.5 (reading,
-deciding, answering its questions, recording), and about 0.3 were gaps counted as neither; helper agents, mostly
-reviewers, also ran about 7 hours in parallel. The preparation splits the same way into about 2.1, 0.8 and 0.7 hours.
-Breaks, overnight ones included, are listed separately in [TIMELOG.md](TIMELOG.md), with the split per row. Beyond the
-required core: PDF upload and the web app (both optional in the brief), the written note on a million documents, a
-search benchmark, conversation names and deleting documents.
+the coding agent was working for about 17.7 of those hours and waiting on me (to read its replies, decide, answer its
+questions, or record) for about 1.5; about 0.3 were gaps counted as neither. Time I spent reading along while it
+worked counts as its time, and about 0.9 more hours of my replies fell between the logged rows. Helper agents, mostly
+reviewers, ran at least about 7 more hours in parallel, preparation included. The preparation splits the same way into
+about 2.1, 0.8 and 0.7 hours. Breaks, overnight ones included, are listed separately in [TIMELOG.md](TIMELOG.md), with
+the split per row. Beyond the required core: PDF upload and the web app (both optional in the brief), the written note
+on a million documents, a search benchmark, conversation names and deleting documents.
 
 ## Run it
 

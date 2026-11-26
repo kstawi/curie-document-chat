@@ -6,10 +6,12 @@ separately. From step 1 on, times are taken with `date` at both ends; earlier ro
 
 The Agent and Me columns, in minutes, were measured afterwards (2026-11-26) from the session logs, not with `date`.
 Agent is the coding agent working while I waited: its turns, and the background jobs and helpers it waited on. Me is
-the time from the agent's reply to my next message, or to my answer in a question dialog, when that took 15 minutes
-or less; a longer gap counts as neither. My recording and voiceover (2026-11-26, about 15 minutes) fall inside Me.
-Helper agents (mostly reviewers) running in parallel with the main agent are not in these columns: about 7 hours in
-all. Me is an upper bound: on 2026-11-24 from 17:53 to 20:33 I also had an unrelated session open.
+the time from the agent's reply to my next message, or to my answer in a question dialog, when that took 15 minutes or
+less; a longer gap counts as neither. My recording and voiceover (2026-11-26, about 15 minutes) fall inside Me. Me
+counts only the time the agent waited on me: time I spent reading along while it worked counts as Agent, and replies I
+sent between the logged rows (about 55 minutes in all) are in neither column. Helper agents (mostly reviewers) running
+in parallel with the main agent are not in these columns either: at least about 7 hours, preparation included. On
+2026-11-24 from 17:53 to 20:33 I also had an unrelated session open.
 
 ## Preparation (before the clock)
 
@@ -88,7 +90,7 @@ all. Me is an upper bound: on 2026-11-24 from 17:53 to 20:33 I also had an unrel
 | 2026-11-26 | 13:14–13:54       | 10   | 39    | 1   | Deleting a document, which I asked for: the route, the trash button and its dialog, tests, two reviews and their fixes                                                                                                                                                                               |
 | 2026-11-26 | about 13:55–14:10 | 10   | 1     | 14  | My own recording and voiceover                                                                                                                                                                                                                                                                       |
 | 2026-11-26 | 14:10–15:02       | 11   | 26    | 8   | Final check: a scan of the whole history, npm audit, a fresh clone run from upload to answer, the recording link and time in the README, DESIGN.md trimmed to its budget, a whole-repo review                                                                                                        |
-| 2026-11-26 | 15:10–15:19       | 11   | 8     | 1   | The Agent and Me columns, measured from the session logs; the split added to the README                                                                                                                                                                                                              |
+| 2026-11-26 | 15:10–15:23       | 11   | 12    | 1   | The Agent and Me columns, measured from the session logs; the split added to the README                                                                                                                                                                                                              |
 
-Totals by the columns: from step 1 on, 19.4 hours of work rows, of which about 17.6 Agent, 1.5 Me and 0.3 neither;
+Totals by the columns: from step 1 on, 19.5 hours of work rows, of which about 17.7 Agent, 1.5 Me and 0.3 neither;
 the preparation, 3.6 hours, of which about 2.1 Agent, 0.8 Me and 0.7 neither.
