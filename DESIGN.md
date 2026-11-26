@@ -148,8 +148,8 @@ server and 21 web tests run in containers by `docker compose run --rm test`.
 Not verified or not done:
 
 - It has only run on Windows with Docker Desktop. There is no CI.
-- The web app has only run against a stand-in model with canned replies, and conversation names only against the
-  fake and stand-in models.
+- The web app and conversation names have run on the local model once, in a dry run before the recording
+  ([docs/model-runs.md](docs/model-runs.md)); every other check of them used stand-in models.
 - Answers on the hosted path last ran on step 2's code; step 7's benchmark ran only Gemini's embeddings and
   follow-up rewrites, and how the app handles Gemini's 429 and 503 replies is untested.
 - Virus scanning isn't built: it would be a ClamAV daemon the worker calls before reading a file, failing the

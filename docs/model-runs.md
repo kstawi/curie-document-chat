@@ -190,3 +190,24 @@ benchmark document, larger than the passage budget, in one conversation on Gemma
 stations got a turbine and then "and how did the one at the second station work out?" (the follow-up answered about
 Gull Point with two quotes, 97 s), and the colour of the masts, which came back `not_in_document` (31 s). The search
 benchmark itself is in `docs/benchmark.md`.
+
+## Before the recording: the web app on a real model (criteria written before the run, 2026-11-26)
+
+Gemma 4 26B-A4B (16,384 context) and nomic-embed-text-v1.5 in LM Studio, the stack on `main` at 0fb9b59 with an empty
+database, the web app at 1440 by 900 in Chromium. The first time the web app and conversation names ran on a real
+model. Raw messages: [runs/2026-11-26-web-app-dry-run.json](runs/2026-11-26-web-app-dry-run.json).
+
+Passes if: the sample uploaded through the dialog reaches Ready; "How fast was keyword search?" is answered with a
+checked quote saying 0.7; its progress shows naming, searching and writing; the conversation is named by the model;
+the follow-up "And the hybrid one?" shows the rewriting stage and is answered with a checked quote saying 1.2; a quote
+click highlights it; no console errors.
+
+Results (11:36 to 11:38): all passed but one stage. The sample showed "Waiting" for about 2 s, then "Ready" (3
+passages). The first question took 34.1 s on the first, thinking-on call: "The median response time for keyword
+search was 0.7 seconds.", with one checked quote (Results, line 19); the stages shown were "Naming the conversation"
+and "Writing the answer". "Searching the document" never showed: the sample goes to the model whole, so the search is
+over before the stream reads the row. The model named the conversation "keyword search speed". The follow-up took 26.3
+s on the first call, rewritten to "What was the median response time for hybrid search?", and answered "The median
+response time for the hybrid prototype was 1.2 seconds." with one checked quote. The quote click scrolled to the
+sentence and highlighted exactly it; the console stayed clean. Free memory with both models and the stack running:
+1.9 GB of 31 GB.
