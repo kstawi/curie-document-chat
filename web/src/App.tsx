@@ -34,7 +34,7 @@ export function App() {
     uploadOpenNow.current = uploadOpen;
   }, [open, documents, uploadOpen]);
 
-  // Counts uploads and retries, so a list read that started before one doesn't undo it when it lands.
+  // Counts uploads, retries and deletes, so a list read that started before one doesn't undo it when it lands.
   const changes = useRef(0);
   // One read at a time, so a slow one can't land after the next poll's and show older states.
   const reading = useRef(false);
@@ -101,13 +101,22 @@ export function App() {
     setOpen(next.open);
   };
 
-  const close = (id: string) => {
+  const close = (id: string, deleted = false) => {
+    if (deleted) {
+      changes.current++;
+      setDocuments((list) => list.filter((d) => d.id !== id));
+    }
     openNow.current = closeWindow(openNow.current, id);
     setOpen(openNow.current);
     setNotice('');
     setPointed((p) => (p?.id === id ? null : p));
-    // The window and its button go, so the focus moves to the document in the list.
-    sidebar.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+    // The window and its button go, so the focus moves to the document in the list, or to the upload button when the
+    // document went with it.
+    sidebar.current
+      ?.querySelector<HTMLElement>(
+        deleted ? '.sidebar-upload button' : `[data-id="${CSS.escape(id)}"]`,
+      )
+      ?.focus();
   };
 
   const upload = async (file: File) => {
@@ -181,6 +190,7 @@ export function App() {
               document={d}
               pointed={pointed?.id === d.id ? pointed.count : 0}
               onClose={() => close(d.id)}
+              onDeleted={() => close(d.id, true)}
               onChanged={changed}
             />
           ))

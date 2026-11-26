@@ -295,6 +295,43 @@ export const documentRoutes: FastifyPluginAsyncZod<AppDeps> = async (
     },
   );
 
+  // Deletes a document with everything about it: passages, the stored PDF, conversations and their messages go by
+  // cascade. Allowed at any time; a preparation or an answer still running finds its row gone and writes nothing.
+  app.delete(
+    '/documents/:id',
+    { schema: { params: idParams, response: { 204: z.null() } } },
+    async (request, reply) => {
+      const id = await db.transaction().execute(async (trx) => {
+        // Locked first, so no conversation or question can join it while its conversations are listed.
+        const doc = await trx
+          .selectFrom('documents')
+          .select('id')
+          .where('id', '=', request.params.id)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!doc) return null;
+        const conversations = await trx
+          .selectFrom('conversations')
+          .select('id')
+          .where('document_id', '=', doc.id)
+          .execute();
+        await trx.deleteFrom('documents').where('id', '=', doc.id).execute();
+        // Replies kept for retried requests hold titles and questions, so they go too. Every such reply names the
+        // document or one of its conversations by id, written as the database writes it (lowercase, unlike a path
+        // id may be).
+        const ids = [doc.id, ...conversations.map((c) => c.id)];
+        await trx
+          .deleteFrom('idempotency_keys')
+          .where((eb) => eb.or(ids.map((x) => eb('response', 'like', `%${x}%`))))
+          .execute();
+        return doc.id;
+      });
+      if (!id) throw new HttpError(404, 'not_found', 'No document with that id.');
+      request.log.info({ documentId: id }, 'document deleted');
+      return reply.code(204).send(null);
+    },
+  );
+
   app.get(
     '/documents/:id/content',
     {

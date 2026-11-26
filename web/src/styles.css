@@ -162,7 +162,8 @@ button:disabled {
 }
 
 /* The upload dialog: the limits, a picker and a drop area. */
-.upload-dialog {
+.upload-dialog,
+.confirm-dialog {
   width: min(32rem, calc(100% - 2rem));
   padding: 1rem 1.25rem 1.25rem;
   border: 1px solid var(--border);
@@ -171,7 +172,8 @@ button:disabled {
   color: var(--text);
 }
 
-.upload-dialog::backdrop {
+.upload-dialog::backdrop,
+.confirm-dialog::backdrop {
   background: rgb(0 0 0 / 55%);
 }
 
@@ -179,6 +181,20 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.confirm-dialog {
+  width: min(26rem, calc(100% - 2rem));
+}
+
+.confirm-dialog p {
+  margin: 0 0 1rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
 }
 
@@ -343,8 +359,9 @@ button:disabled {
   background: var(--panel);
 }
 
+/* The name only takes the room it needs, so the delete button sits right after it; the next item goes right. */
 .window-header h2 {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   margin: 0;
   overflow: hidden;
@@ -353,7 +370,12 @@ button:disabled {
   font: 400 1.05rem/1.4 var(--serif);
 }
 
-.close {
+.window-header .delete + * {
+  margin-left: auto;
+}
+
+.close,
+.delete {
   flex: none;
   display: grid;
   place-items: center;
@@ -366,17 +388,20 @@ button:disabled {
   cursor: pointer;
 }
 
-.close:hover {
+.close:hover,
+.delete:hover {
   border-color: var(--accent);
 }
 
-.close svg {
+.close svg,
+.delete svg {
   width: 14px;
   height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .window-problem {

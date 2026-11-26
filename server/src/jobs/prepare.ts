@@ -97,6 +97,23 @@ export async function prepareDocument(
       signal,
     );
     await db.transaction().execute(async (trx) => {
+      // The document's row first: it locks the row before any chunk, in the same order as a delete, so the two can't
+      // deadlock; a document deleted meanwhile updates nothing and the job stops here.
+      const ready = await trx
+        .updateTable('documents')
+        .set({
+          status: 'ready',
+          ...(extract ? { content, page_map: JSON.stringify(pages) } : {}),
+          embedding_model: model.embeddingModel,
+          error_code: null,
+          error_message: null,
+          updated_at: new Date(),
+        })
+        .where('id', '=', documentId)
+        .where('attempt', '=', attempt)
+        .where('status', '=', 'processing')
+        .executeTakeFirst();
+      if (!ready.numUpdatedRows) throw new StaleJob();
       await trx.deleteFrom('chunks').where('document_id', '=', documentId).execute();
       for (let i = 0; i < chunks.length; i += INSERT_BATCH) {
         await trx
@@ -114,21 +131,6 @@ export async function prepareDocument(
           )
           .execute();
       }
-      const ready = await trx
-        .updateTable('documents')
-        .set({
-          status: 'ready',
-          ...(extract ? { content, page_map: JSON.stringify(pages) } : {}),
-          embedding_model: model.embeddingModel,
-          error_code: null,
-          error_message: null,
-          updated_at: new Date(),
-        })
-        .where('id', '=', documentId)
-        .where('attempt', '=', attempt)
-        .where('status', '=', 'processing')
-        .executeTakeFirst();
-      if (!ready.numUpdatedRows) throw new StaleJob();
     });
     log.info({ documentId, chunks: chunks.length }, 'document ready');
   } catch (err) {

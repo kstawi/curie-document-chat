@@ -33,6 +33,11 @@ let renameGate: Promise<void> = Promise.resolve();
 // Questions stay pending, to be followed; renames and reads of the names fail, as with the server out of reach.
 let pendingAnswers = false;
 let failNames = false;
+// The documents asked to be deleted, the status the next delete answers with, and messages gone with their document.
+let deletes: string[] = [];
+let deleteStatus = 204;
+let deleteGate: Promise<void> = Promise.resolve();
+let goneMessages = false;
 
 const answerMessage = (conversationId: string, status: 'pending' | 'completed') => ({
   id: '20000000-0000-4000-8000-000000000001',
@@ -90,6 +95,20 @@ beforeEach(async () => {
           JSON.stringify({ error: 'unavailable', message: 'The server could not be reached.' }),
           { status: 503 },
         );
+      if (init?.method === 'DELETE') {
+        deletes.push(url.split('/')[3]!);
+        await deleteGate;
+        return deleteStatus === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: 'unavailable', message: 'Try again shortly.' }), {
+              status: deleteStatus,
+            });
+      }
+      if (goneMessages && url.startsWith('/api/messages/')) {
+        return new Response(JSON.stringify({ error: 'not_found', message: 'No message.' }), {
+          status: 404,
+        });
+      }
       if (init?.method === 'PATCH') {
         await renameGate;
         if (failNames) return outOfReach();
@@ -135,6 +154,10 @@ afterEach(() => {
   renames = [];
   pendingAnswers = false;
   failNames = false;
+  deletes = [];
+  deleteStatus = 204;
+  deleteGate = Promise.resolve();
+  goneMessages = false;
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -196,7 +219,7 @@ it('opens at most four documents, and says to close one first', async () => {
 });
 
 it('opens the upload dialog, with the limits, from the upload button', async () => {
-  const dialog = container.querySelector('dialog');
+  const dialog = container.querySelector<HTMLDialogElement>('dialog.upload-dialog');
   expect(dialog?.open).toBe(false);
   await click(container.querySelector('.sidebar-upload button'));
   expect(dialog?.open).toBe(true);
@@ -260,13 +283,13 @@ it('opens an upload in a window with the focus, from the empty page', async () =
   await choose(note());
   await settleUpload(reply(doc(6)));
   await nextFrame();
-  expect(container.querySelector('dialog')?.open).toBe(false);
+  expect(container.querySelector<HTMLDialogElement>('dialog.upload-dialog')?.open).toBe(false);
   expect(windows()).toEqual(['Document 6']);
   expect(document.activeElement?.ariaLabel).toBe('Document 6');
 });
 
 it('marks the upload button when an upload fails after its dialog was closed, and shows why when opened', async () => {
-  const dialog = container.querySelector('dialog');
+  const dialog = container.querySelector<HTMLDialogElement>('dialog.upload-dialog');
   const button = () => container.querySelector('.sidebar-upload button');
   await click(button());
   await choose(note());
@@ -484,4 +507,98 @@ it('changes the words every few seconds while the model writes, and tells screen
   await stage('checking');
   expect(looping()).toBeUndefined();
   expect(shown()).toBe('Checking quotes against the text');
+});
+
+const confirmDialog = () => container.querySelector<HTMLDialogElement>('section.window dialog')!;
+const inDialog = (label: string) =>
+  [...confirmDialog().querySelectorAll('button')].find((b) => b.textContent === label);
+
+it('deletes a document only once asked, then closes its window and drops it from the list', async () => {
+  await click(inList(1));
+  const trash = () => container.querySelector('[aria-label="Delete Document 1"]');
+  await click(trash());
+  expect(confirmDialog().open).toBe(true);
+  expect(confirmDialog().textContent).toContain('Delete Document 1 and its conversations?');
+  expect(document.activeElement).toBe(inDialog('Cancel'));
+  await click(inDialog('Cancel'));
+  expect(confirmDialog().open).toBe(false);
+  expect(deletes).toEqual([]);
+  expect(windows()).toEqual(['Document 1']);
+
+  await click(trash());
+  await click(inDialog('Delete'));
+  expect(deletes).toEqual([doc(1).id]);
+  expect(windows()).toEqual([]);
+  expect(inList(1)).toBeUndefined();
+  expect(document.activeElement).toBe(container.querySelector('.sidebar-upload button'));
+});
+
+it('shows why a delete failed in its dialog, and takes a document already gone as deleted', async () => {
+  await click(inList(2));
+  await click(container.querySelector('[aria-label="Delete Document 2"]'));
+  deleteStatus = 503;
+  // A click focuses the button in a browser; jsdom leaves the focus on Cancel unless told.
+  await act(async () => inDialog('Delete')!.focus());
+  await click(inDialog('Delete'));
+  expect(confirmDialog().querySelector('[role="alert"]')?.textContent).toBe('Try again shortly.');
+  expect(document.activeElement).toBe(inDialog('Cancel'));
+  expect(windows()).toEqual(['Document 2']);
+
+  deleteStatus = 404;
+  await click(inDialog('Delete'));
+  expect(windows()).toEqual([]);
+  expect(inList(2)).toBeUndefined();
+});
+
+it('stops following an answer deleted with its document', async () => {
+  await showConversations(conversation(CONVERSATION, 'Pilot'));
+  pendingAnswers = true;
+  await askQuestion('Who owned the pilot?');
+  goneMessages = true;
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const polls = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith('/api/messages/')).length;
+  // The browser gives up on the stream, so the answer is polled for instead.
+  const source = FakeEventSource.instances[0]!;
+  source.readyState = FakeEventSource.CLOSED;
+  await act(async () => source.onerror?.());
+  await vi.waitFor(() => expect(polls()).toBe(1));
+  await act(async () => vi.advanceTimersByTime(10_000));
+  expect(polls()).toBe(1);
+});
+
+it('shows a failed delete in the window when its dialog was closed while it waited', async () => {
+  await click(inList(3));
+  await click(container.querySelector('[aria-label="Delete Document 3"]'));
+  let release!: () => void;
+  deleteGate = new Promise((r) => (release = r));
+  deleteStatus = 503;
+  await click(inDialog('Delete'));
+  // As Escape does: a modal dialog closes even while its buttons are disabled.
+  await act(async () => confirmDialog().close());
+  await act(async () => {
+    release();
+    await deleteGate;
+  });
+  expect(container.querySelector('section.window .window-problem')?.textContent).toBe(
+    'Try again shortly.',
+  );
+  expect(windows()).toEqual(['Document 3']);
+});
+
+it('keeps the delete and retry buttons off while a delete is out, even with its dialog closed', async () => {
+  await click(inList(4));
+  await click(container.querySelector('[aria-label="Delete Document 4"]'));
+  let release!: () => void;
+  deleteGate = new Promise((r) => (release = r));
+  await click(inDialog('Delete'));
+  await act(async () => confirmDialog().close());
+  expect(
+    container.querySelector<HTMLButtonElement>('[aria-label="Delete Document 4"]')?.disabled,
+  ).toBe(true);
+  await act(async () => {
+    release();
+    await deleteGate;
+  });
+  expect(windows()).toEqual([]);
 });

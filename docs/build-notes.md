@@ -372,3 +372,29 @@ doesn't look frozen. The shorter stages keep their own names. Screen readers hea
 and reduced motion turns the fade off. The Ask button moved under the question box, which now takes the chat's full
 width. A test advances the clock and checks the words change and the announcement doesn't; it fails if the words stop
 changing.
+
+## Before the recording: deleting a document
+
+On 2026-11-26 I asked for a way to delete a document and everything about it, from a trash button right after its
+name in its window. I chose that it asks first, and that it works at any time, even while the document is being
+prepared or an answer is being written.
+
+`DELETE /documents/:id` locks the document's row, lists its conversations, then deletes the row; passages, the stored
+PDF, conversations and answers follow by the cascades the tables already had. In the same transaction it removes the
+responses kept for retried requests that name the document or one of its conversations (by the ids as the database
+writes them), since they hold titles and questions for up to 24 hours. A job still running runs its remaining steps (reading a PDF, embedding, the model's answer, even with no passages left), then changes nothing: the answer job's writes are guarded by its row, and the preparation job now
+saves the document's row before its passages, so a deleted document stops it there. Tests hold the model's reply
+open, delete, then check the job ended without an error or a retry and the next job ran. In the web app, a dialog
+asks before deleting (Cancel focused); a 404 counts as deleted; the window closes and the focus moves to the upload
+button, since the document's own entry goes with it. Polling for an answer now stops at a 404, which before would have
+gone on every 2 seconds in another tab.
+
+A fresh review found six problems, all fixed: Escape closing the dialog while the delete waited, which hid a failure
+(the window now shows it); an id written in capitals leaving the kept responses behind; a deadlock between a delete
+and a document being prepared again for a new model, which the review replayed in two database sessions (fixed by the
+order above, not by a test); a slow "Try again" reply putting a deleted document back in the list (the button is off
+meanwhile); the focus lost after a failed delete; and conversations listed before the row was locked. Left: a
+conversation, question or retry sent in the same instant as the delete gets 500 or 409 instead of 404, another open
+tab shows the document until its list is read again, and a running job is not stopped early.
+
+A second review found the six fixed, and three things that were not true: these notes said a job stops after its current model call (it runs every remaining step), the test for the focus going back to Cancel could not fail in jsdom (it now focuses Delete first, as a click would), and closing the dialog with Escape during a delete let the delete and retry buttons back on (they now stay off until it ends, tested).

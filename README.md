@@ -86,6 +86,7 @@ A failed document or answer can be tried again with `POST /documents/<doc>/retry
 `POST /messages/<message>/retry` (only a conversation's latest question). Every POST accepts an `Idempotency-Key`
 header: a request sent again with the same key gets its first response instead of running twice, and a different
 request with that key gets 422. While 20 uploads or 20 questions already wait, new ones get 503 `busy` with `Retry-After`.
+`DELETE /documents/<doc>` deletes a document with its conversations and answers.
 
 ## Run the tests
 

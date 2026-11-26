@@ -39,6 +39,9 @@ containers run as non-root users on read-only filesystems, and every service has
   conversation.
 - `idempotency_keys`: the stored response for each key and route, for 24 hours.
 
+Deleting a document removes its rows in every table above (by cascade, and the stored responses that name it or its
+conversations), at any time: a job still running for it runs its remaining steps, then writes nothing.
+
 ## Background preparation
 
 An upload's type comes from its bytes, never the file name. Text must be UTF-8 and is stored with line endings made
@@ -142,8 +145,8 @@ written-up runs instead. Every failure case and how it was checked is in
 
 ## Complete and remaining
 
-Complete: the required API, plus PDF, the web app, live progress, the hardening above and the benchmark, with 265
-server and 21 web tests run in containers by `docker compose run --rm test`.
+Complete: the required API, plus PDF, the web app, live progress, deleting a document, the hardening above and the
+benchmark, with 269 server and 27 web tests run in containers by `docker compose run --rm test`.
 
 Not verified or not done:
 
@@ -160,7 +163,7 @@ Not verified or not done:
 - In the web app, Enter during Safari's input-method conversion sends the question, and narrow screens get no
   layout of their own.
 
-Next: deleting documents and conversations; re-preparing every document after a model change
+Next: deleting single conversations; re-preparing every document after a model change
 rather than one at a time; skipping the embedding and the rewrite when a document goes in whole; summarising older
 turns in long conversations; OCR for scans; a reranker; full-text search in other languages.
 

@@ -109,6 +109,7 @@ export const api = {
     return call<DocumentInfo>('/documents', { method: 'POST', body: form });
   },
   retryDocument: (id: string) => call<DocumentInfo>(`/documents/${id}/retry`, json('POST')),
+  deleteDocument: (id: string) => call<null>(`/documents/${id}`, json('DELETE')),
   content: (id: string) => call<DocumentContent>(`/documents/${id}/content`),
   conversations: (documentId: string) =>
     call<{ items: Conversation[] }>(`/documents/${documentId}/conversations`).then((r) => r.items),
@@ -142,8 +143,9 @@ export function follow(id: string, update: (message: Message) => void): () => vo
       if (stopped) return;
       update(message);
       if (message.status !== 'pending') return stop();
-    } catch {
-      // The next poll tries again.
+    } catch (err) {
+      // Deleted with its document (in another tab, say): gone for good. Anything else, the next poll tries again.
+      if ((err as ApiError).status === 404) return stop();
     }
     timer = setTimeout(() => void poll(), 2_000);
   };

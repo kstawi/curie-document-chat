@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, type ApiError, type DocumentInfo } from './api';
 import type { Highlight } from './App';
 import { Chat } from './Chat';
@@ -15,11 +15,13 @@ export function DocumentWindow({
   document,
   pointed,
   onClose,
+  onDeleted,
   onChanged,
 }: {
   document: DocumentInfo;
   pointed: number;
   onClose: () => void;
+  onDeleted: () => void;
   onChanged: (doc: DocumentInfo) => void;
 }) {
   const [highlight, setHighlight] = useState<Highlight | null>(null);
@@ -27,8 +29,13 @@ export function DocumentWindow({
   const [dragging, setDragging] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteProblem, setDeleteProblem] = useState<string | null>(null);
   const self = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
+  const confirm = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const questionId = useId();
 
   // Pointed to from the list: outlined for a moment, with the focus moved here.
   useEffect(() => {
@@ -59,6 +66,41 @@ export function DocumentWindow({
     }
   };
 
+  const askToDelete = () => {
+    setDeleteProblem(null);
+    confirm.current?.showModal();
+    // Cancel first, so Enter or Space right away deletes nothing.
+    cancel.current?.focus();
+  };
+
+  // A failed delete hands the focus back to Cancel, once the buttons are enabled again.
+  useEffect(() => {
+    if (deleteProblem) cancel.current?.focus();
+  }, [deleteProblem]);
+
+  const remove = async () => {
+    setDeleting(true);
+    setDeleteProblem(null);
+    try {
+      await api.deleteDocument(document.id);
+    } catch (err) {
+      // Already gone (deleted in another tab, say) is what was asked for.
+      if ((err as ApiError).status !== 404) {
+        setDeleting(false);
+        // Escape closes the dialog even while it waits; then the window says why, not the hidden dialog.
+        if (confirm.current?.open) setDeleteProblem((err as ApiError).message);
+        else {
+          setProblem((err as ApiError).message);
+          self.current?.focus();
+        }
+        return;
+      }
+    }
+    // Closed first: while the modal is open, the rest of the page can't take the focus.
+    confirm.current?.close();
+    onDeleted();
+  };
+
   const resize = (clientX: number) => {
     const box = body.current?.getBoundingClientRect();
     if (box && box.width > 0) setSplit(clamp(((clientX - box.left) / box.width) * 100));
@@ -70,8 +112,24 @@ export function DocumentWindow({
         <h2>
           <bdi>{document.title}</bdi>
         </h2>
+        <button
+          className="delete"
+          aria-label={`Delete ${document.title}`}
+          title="Delete"
+          // Not while a retry is out (its reply would put the document back in the list), nor while a delete is.
+          disabled={retrying || deleting}
+          onClick={askToDelete}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 4.5h11M6.5 4.5V2.5h3v2M4 4.5l.7 9h6.6l.7-9M6.7 7v4.5M9.3 7v4.5" />
+          </svg>
+        </button>
         {document.retryable && (
-          <button className="button small" disabled={retrying} onClick={() => void retry()}>
+          <button
+            className="button small"
+            disabled={retrying || deleting}
+            onClick={() => void retry()}
+          >
             {document.status === 'ready' ? 'Prepare again for the current model' : 'Try again'}
           </button>
         )}
@@ -86,6 +144,29 @@ export function DocumentWindow({
           </svg>
         </button>
       </header>
+      <dialog ref={confirm} className="confirm-dialog" aria-labelledby={questionId}>
+        <p id={questionId}>
+          Delete <bdi>{document.title}</bdi> and its conversations? This can't be undone.
+        </p>
+        {deleteProblem && (
+          <p className="error" role="alert">
+            {deleteProblem}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button
+            ref={cancel}
+            className="button"
+            disabled={deleting}
+            onClick={() => confirm.current?.close()}
+          >
+            Cancel
+          </button>
+          <button className="button primary" disabled={deleting} onClick={() => void remove()}>
+            {deleting ? 'Deleting' : 'Delete'}
+          </button>
+        </div>
+      </dialog>
       {problem && (
         <p className="error window-problem" role="alert">
           {problem}
