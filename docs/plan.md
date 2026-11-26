@@ -372,8 +372,8 @@ lost; job waiting legitimately in the queue; stale retry finishing after a newer
 time (attempt cap); SSE client late, reconnecting, or connecting after the end; shutdown during an answer; queue too
 long; reloading a conversation.
 Built: per-document re-preparation through the retry endpoint (re-embeds, and re-extracts PDFs from the kept
-original). Documented as next: bulk or automatic re-indexing, OCR, rendered-PDF view, virus scanning, deleting
-documents, long histories (summarise older turns), per-user cost limits, a reranker, non-English full-text.
+original), and deleting a document with everything about it (added 2026-11-26 at the author's request). Documented
+as next: bulk or automatic re-indexing, OCR, rendered-PDF view, virus scanning, long histories (summarise older turns), per-user cost limits, a reranker, non-English full-text.
 
 ## 10. Verification
 
