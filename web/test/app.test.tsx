@@ -138,6 +138,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const click = async (el: Element | null | undefined) => {
@@ -454,4 +455,33 @@ it('reads the names again after a question is sent, when the menu gets the focus
   conversations = [conversation(CONVERSATION, 'After switching'), conversation(OTHER, 'Other')];
   await choose(CONVERSATION);
   expect(menuShows().startsWith(isolated('After switching'))).toBe(true);
+});
+
+it('changes the words every few seconds while the model writes, and tells screen readers the stage once', async () => {
+  await showConversations(conversation(CONVERSATION, 'Pilot'));
+  pendingAnswers = true;
+  await askQuestion('Who owned the pilot?');
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const stage = (name: string) =>
+    act(async () =>
+      FakeEventSource.instances[0]!.emit('progress', {
+        ...answerMessage(CONVERSATION, 'pending'),
+        stage: name,
+      }),
+    );
+  const shown = () => container.querySelector('section.window .stage')?.textContent;
+  const looping = () => container.querySelector('section.window .thinking')?.textContent;
+
+  await stage('naming');
+  expect(shown()).toBe('Naming the conversation');
+  await stage('writing');
+  expect(looping()).toBe('Thinking…');
+  await act(async () => vi.advanceTimersByTime(2500));
+  expect(looping()).toBe('Reading the passages…');
+  expect(container.querySelector('section.window [role="status"]')?.textContent).toBe(
+    'Writing the answer',
+  );
+  await stage('checking');
+  expect(looping()).toBeUndefined();
+  expect(shown()).toBe('Checking quotes against the text');
 });

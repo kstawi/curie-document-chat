@@ -50,4 +50,6 @@ asks for the instructions actually used. The broader personal rules that also ap
 - Dark only, warm near-black greys, thin borders, small radii. Charis SIL for document text and headings, Inter for
   the interface, both self-hosted. One orange accent, used sparingly. No gradients, glows, emoji, sparkle icons,
   robot avatars, card grids or typing animations.
+- The one moving text (the author's request, 2026-11-26): while the model writes an answer, a few words change every
+  few seconds with a short fade, so a long wait doesn't look frozen. Reduced motion turns the fade off.
 - Light text on solid orange fails contrast; quote highlights are a faint orange tint with an underline.

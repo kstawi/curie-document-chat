@@ -20,6 +20,26 @@ const STAGES: Record<string, string> = {
   retrying: 'The model server did not answer; trying again shortly',
 };
 
+// The model writes for half a minute or more; words that change every few seconds show the page is not stuck.
+const THINKING = ['Thinking…', 'Reading the passages…', 'Researching…', 'Writing the answer…'];
+
+function Thinking() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setN((i) => (i + 1) % THINKING.length), 2500);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <p className="stage">
+      <span className="visually-hidden">{STAGES.writing}</span>
+      {/* A new key restarts the fade-in; screen readers get the real stage instead of every change. */}
+      <span key={n} className="thinking" aria-hidden="true">
+        {THINKING[n]}
+      </span>
+    </p>
+  );
+}
+
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     day: 'numeric',
@@ -333,7 +353,12 @@ export function Chat({
             <p className="question">
               <bdi>{m.question}</bdi>
             </p>
-            {m.status === 'pending' && <p className="stage">{STAGES[m.stage ?? 'waiting']}</p>}
+            {m.status === 'pending' &&
+              (m.stage === 'writing' ? (
+                <Thinking />
+              ) : (
+                <p className="stage">{STAGES[m.stage ?? 'waiting']}</p>
+              ))}
             {m.status === 'completed' && m.outcome === 'answered' && (
               <>
                 <p className="answer">

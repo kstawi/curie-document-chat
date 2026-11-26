@@ -362,3 +362,13 @@ with nothing visible in it named the conversation with nothing (it now stays unn
 
 Both reviews noted two costs that stay: the naming call can add up to its timeout (60 s) to a first answer's worst case,
 and after a model outage it is tried again on each attempt of the job, as long as the name is still the question's.
+
+## Before the recording: two small changes
+
+On 2026-11-26, after the dry run, I asked for two changes. While the model writes an answer (about 30 s in the dry
+run, with the stage reading "Writing the answer" the whole time) the stage line now cycles through "Thinking…",
+"Reading the passages…", "Researching…" and "Writing the answer…", one every 2.5 s with a short fade, so a long wait
+doesn't look frozen. The shorter stages keep their own names. Screen readers hear "Writing the answer" once, as before,
+and reduced motion turns the fade off. The Ask button moved under the question box, which now takes the chat's full
+width. A test advances the clock and checks the words change and the announcement doesn't; it fails if the words stop
+changing.

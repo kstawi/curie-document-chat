@@ -619,6 +619,18 @@ mark {
   font-size: 0.85rem;
 }
 
+.thinking {
+  display: inline-block;
+  animation: thinking-in 0.4s ease-out;
+}
+
+@keyframes thinking-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.3em);
+  }
+}
+
 .quotes {
   list-style: none;
   margin: 0;
@@ -654,8 +666,6 @@ mark {
 
 .ask {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
   gap: 0.4rem;
   padding: 0.5rem 0.75rem 0.75rem;
   border-top: 1px solid var(--border);
@@ -663,8 +673,11 @@ mark {
 
 .ask > .error,
 .ask > .field-label {
-  grid-column: 1 / -1;
   margin: 0;
+}
+
+.ask > .button {
+  justify-self: end;
 }
 
 .field-label {
@@ -684,5 +697,6 @@ mark {
   * {
     scroll-behavior: auto !important;
     transition: none !important;
+    animation: none !important;
   }
 }
