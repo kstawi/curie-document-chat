@@ -25,9 +25,8 @@ documents.
 Needs Docker with Compose, ports 3000 and 8080 free, and a model: LM Studio on this machine, or a key for any
 OpenAI-compatible service. Built and run on Windows with Docker Desktop; Linux and macOS are untested.
 
-**First the model. LM Studio (the default):** install it and download both models below (its search finds them by
-these names). The chat model needs about 16 GB of free memory. Load both with no idle timer, so a request never waits
-for a model to load:
+**First the model. LM Studio (the default):** install it and download both models below. The chat model needs about
+16 GB of free memory. Load both with no idle timer, so a request never waits for a model to load:
 
 ```sh
 lms server start

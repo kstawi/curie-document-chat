@@ -48,6 +48,14 @@ timed out once at vitest's default 5 s (2.5 s on the re-run); give it a longer t
 submission channel (before step 11). There is no
 fixed deadline (user, 2026-11-24), so the drop order in §11 only applies if that changes.
 
+**Steps 10 and 11 (2026-11-26).** The recording was made by hand (under five minutes, no cuts) and is linked in the
+README. Final check: the whole history scanned clean, `npm audit` found nothing, a fresh clone from GitHub passed the
+test command and one real question inside WSL, one whole-repo review and its fixes, the README's recording link and
+time (about 19 hours of work), DESIGN.md back to about 2,000 words, and the conversation export dropped (the
+author's choice). Left to the author: adding the reviewers to the repo and sending the links. Of the items still to
+add or still needed above, the recording link, the total time, the PDF test's timeout (30 s since a47057d) and the
+submission details are settled; the free-tier limits were not asked for again.
+
 ## 1. Context
 
 - The brief is the task to build (user, 2026-11-23). This page is an older version: Curie dropped the live-coding
