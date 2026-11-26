@@ -9,14 +9,59 @@ every POST accepts, the event stream below, and error replies, which all share o
 
 Uploads are Markdown or text up to 1 MB, or PDF up to 5 MB and 100 pages; the type comes from the file's first bytes.
 
+## Routes
+
+| Route                               | Body                                                                | Success                | Use                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------- |
+| `GET /health`                       |                                                                     | 200                    | The API process is up                                                         |
+| `GET /ready`                        |                                                                     | 200, or 503 when not   | Database, Redis, and the worker's last check of both models                   |
+| `POST /documents`                   | multipart: `title` (optional; the file name otherwise), then `file` | 202 document, `queued` | Upload; preparation runs in the background                                    |
+| `GET /documents?limit=&offset=`     |                                                                     | 200 `{ items }`        | Newest first; `limit` 1 to 100, 20 by default                                 |
+| `GET /documents/:id`                |                                                                     | 200 document           | `status` (`queued`, `processing`, `ready`, `failed`), `error` and `retryable` |
+| `GET /documents/:id/content`        |                                                                     | 200                    | The stored text (and a PDF's pages), which quote offsets point into           |
+| `POST /documents/:id/retry`         |                                                                     | 202 document           | Prepare again: a failed document, or one indexed with another embedding model |
+| `DELETE /documents/:id`             |                                                                     | 204                    | Delete it with its passages, conversations and answers                        |
+| `POST /documents/:id/conversations` |                                                                     | 201 conversation       | Start a conversation                                                          |
+| `GET /documents/:id/conversations`  |                                                                     | 200 `{ items }`        | Newest first, with their names                                                |
+| `PATCH /conversations/:id`          | `{ "title": "..." }`                                                | 200 conversation       | Rename (below)                                                                |
+| `POST /conversations/:id/messages`  | `{ "question": "..." }`                                             | 202 message, `pending` | Ask; one pending question per conversation                                    |
+| `GET /conversations/:id/messages`   |                                                                     | 200 `{ items }`        | The conversation's questions and answers, in order                            |
+| `GET /messages/:id`                 |                                                                     | 200 message            | Poll an answer                                                                |
+| `GET /messages/:id/events`          |                                                                     | 200 event stream       | Follow an answer (below)                                                      |
+| `POST /messages/:id/retry`          |                                                                     | 202 message            | Ask a failed question again; the conversation's latest only                   |
+
+## Errors
+
+A refused request gets `{ "error": "<code>", "message": "<text>" }`; the message is safe to show.
+
+| Status   | Codes                                                                                                                                                                                                                                              |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400      | `invalid_request` (body or parameters don't fit), `no_file`, `invalid_encoding` (text that isn't UTF-8), `empty_document`, `invalid_title`                                                                                                         |
+| 403      | `host_not_allowed`, `origin_not_allowed` (a write from a web page on another origin)                                                                                                                                                               |
+| 404      | `not_found`                                                                                                                                                                                                                                        |
+| 409      | `document_not_ready`, `document_failed`, `embedding_model_changed` (asking about such a document), `answer_pending` (the conversation already has one), `not_retryable`, `request_in_progress` (the same `Idempotency-Key` is still being handled) |
+| 413, 415 | `file_too_large`, `unsupported_type`                                                                                                                                                                                                               |
+| 422      | `idempotency_key_reused` (the same key with a different request)                                                                                                                                                                                   |
+| 429      | `rate_limited`: 10 uploads and 30 questions a minute, with `Retry-After`                                                                                                                                                                           |
+| 503      | `busy` (20 uploads or 20 questions already wait; `Retry-After`), `queue_unavailable` (Redis is down), `shutting_down`                                                                                                                              |
+
+A document or message whose `status` is `failed` carries `error: { code, message }`, with a code from this set:
+`empty_document`, `too_many_passages`, `pdf_encrypted`, `pdf_no_text`, `pdf_too_many_pages`, `pdf_parse_failed`,
+`pdf_parse_timeout`, `pdf_parser_unavailable`, `document_not_ready`, `document_failed`, `embedding_model_changed`,
+`model_unavailable`, `model_rejected`, `model_bad_output`, `context_too_long`, `max_attempts`, `internal_error`. A
+failed document can be prepared again unless the same file would fail the same way (`empty_document`,
+`too_many_passages`, and the three `pdf_` codes about the file itself); its `retryable` field says which. A failed
+question can be asked again with `POST /messages/:id/retry` while it is the conversation's latest.
+
 ## Conversation names
 
-A conversation's `title` is `null` until its first question. That question, cut to 60 characters, is its name at
-once; the answer job then asks the model for a short name from the question alone and replaces it, before the answer
-is final. If that call fails, the question stays. `PATCH /conversations/:id` with `{ "title": "..." }` renames a
-conversation: the name is cleaned like a document title, must keep 1 to 80 characters, at least one of them visible (400 `invalid_title` otherwise; a body that is not
-`{ "title": "..." }` gets 400 `invalid_request`), and is never replaced by the model's. A client that shows names can read the conversation list again after
-sending a first question and when its answer is final.
+A conversation's `title` is `null` until its first question. That question, cut to 60 characters, is its name at once;
+the answer job then asks the model for a short name from the question alone and replaces it, before the answer is
+final. If that call fails, the question stays. `PATCH /conversations/:id` with `{ "title": "..." }` renames a
+conversation: the name is cleaned like a document title, must keep 1 to 80 characters, at least one of them visible
+(400 `invalid_title` otherwise; a body that is not `{ "title": "..." }` gets 400 `invalid_request`), and is never
+replaced by the model's. A client that shows names can read the conversation list again after sending a first question
+and when its answer is final.
 
 ## Following an answer
 
@@ -106,5 +151,5 @@ by searching for `text`.
 
 For a PDF, `GET /documents/:id/content` also returns `pages`: `[{ page, start, end }]`, where each page's text sits in
 `content`; pages are joined by a blank line. A quote from a PDF has `startPage` and `endPage`, and its `section` is
-`page N`, or `pages N–M` when it crosses a page break. A running head or footer appears once, where it is first found, and page numbers not at all; words
-hyphenated at a line end stay as the PDF has them (a quote may still join them).
+`page N`, or `pages N–M` when it crosses a page break. A running head or footer appears once, where it is first found,
+and page numbers not at all; words hyphenated at a line end stay as the PDF has them (a quote may still join them).

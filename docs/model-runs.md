@@ -211,3 +211,18 @@ s on the first call, rewritten to "What was the median response time for hybrid 
 response time for the hybrid prototype was 1.2 seconds." with one checked quote. The quote click scrolled to the
 sentence and highlighted exactly it; the console stayed clean. Free memory with both models and the stack running:
 1.9 GB of 31 GB.
+
+## The recorded take and a fresh clone (2026-11-26)
+
+**A scripted take for the video** (12:02), recorded with OBS while a script drove the web app in Chrome; the
+submitted recording is a later one made by hand. Gemma 4 26B-A4B and nomic-embed-text-v1.5 in LM Studio, the stack on
+`main` at 5ab31d0 with an empty database. "How fast was keyword search?" took 24 s: "The median response time for
+keyword search was 0.7 seconds.", one checked quote; the model named the conversation "keyword search speed". "And
+the hybrid one?" took 30 s: "The median response time for the hybrid prototype was 1.2 seconds.", one checked
+quote. "What did the pilot cost?" took 20 s and came back `not_in_document`: "The provided text does not mention the
+cost of the pilot." The cycling words showed while the model wrote, and the page never grew a scroll bar.
+
+**A fresh clone** (14:45), from GitHub at 3b7b400 into WSL's Linux filesystem, run by the README's steps with `.env`
+copied from `.env.example` and the two host ports moved by a Compose override file, so it ran beside the stack already
+up. `/ready` reported both models reachable; the sample was ready after about 2 s; "Who owned the pilot?" took 59 s:
+"Mira Chen", one checked quote (Decision, line 29). The test command also passed there, before any `.env` existed.

@@ -9,7 +9,9 @@ recorded with its date in the plan or the build notes. Commits carry a `Co-Autho
 
 - **The plan.** [plan.md](plan.md) is a cleaned copy of the planning document, agreed with me question by question
   before the first line of code and kept as the source of truth through the build. Its model choices rest on the
-  test written up in [model-check.md](model-check.md), with criteria written before each run.
+  test written up in [model-check.md](model-check.md), with criteria written before each run. The plan also promised
+  a redacted export of the agent's conversation; I dropped it at the end (2026-11-26): it is long and full of personal
+  details, and this file, the rules and the mistakes log show how the agent was directed and checked.
 - **The project's rules.** [CLAUDE.md](../CLAUDE.md) is in the repo from the first commit, with the way of working,
   the code and writing rules, and the look of the web app. The agent's session ran from a folder above the repo,
   where the file isn't loaded on its own, so the file says to read it at the start of every step.

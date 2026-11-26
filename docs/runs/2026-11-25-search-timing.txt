@@ -1,4 +1,4 @@
-# Output of `npm run timing -w server`, 2026-11-25 (see DESIGN.md, step 2 search)
+# Output of `npm run timing -w server`, 2026-11-25 (see docs/build-notes.md, step 2)
 
 ## The development Postgres container (Postgres 17, pgvector 0.8.7), one document of 5,000 generated passages
 ## with random vectors, in a transaction rolled back afterwards.
